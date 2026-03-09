@@ -1,0 +1,113 @@
+# TODO
+
+## Progress
+
+- Reviewed [brief.md](/Users/jonochang/projects/lib/jc/sifter/docs/specs/brief.md) and confirmed the current `sifter` repo is still a near-empty stub.
+- Reviewed `/Users/jonochang/projects/lib/qmd` to extract the concrete compatibility surface:
+  - QMD-style CLI command families
+  - YAML collection/context config model
+  - status/output/result-shape conventions
+  - SQLite-centered storage patterns worth preserving behaviorally
+- Reviewed `/Users/jonochang/projects/lib/jc/untangle` as the Nix/Rust reference project:
+  - `flake.nix` with `rust-overlay`
+  - `package.nix` and `default.nix`
+  - `devShells.default`
+  - `.envrc` with `use flake`
+  - GitHub Actions using `nix develop`
+  - `deny.toml`
+  - `.config/nextest.toml`
+- Locked the main architecture choices for `sifter`:
+  - binary name: `sifter`
+  - Rust workspace
+  - Tantivy for lexical search
+  - SQLite for metadata/catalog/content
+  - plugin-style code intelligence so new languages can be added cleanly
+- Locked the first implementation behavior:
+  - docs + code lexical search are real
+  - `symbol` and `related` are real
+  - `embed`, `vsearch`, and `query` exist but return explicit deferred-runtime errors in the first cut
+- Locked the development environment direction:
+  - Nix flake as the primary dev environment
+  - stable default shell for day-to-day work
+  - separate nightly-oriented checks for `miri` and `cargo-udeps`
+
+## TODO
+
+- Initialize a Cargo workspace for `sifter` instead of a single crate.
+- Split the codebase into clear boundaries:
+  - `sifter-cli`
+  - `sifter-core` for pure logic and shared types
+  - `sifter-store` for SQLite/Tantivy adapters
+  - `sifter-codeintel` for plugin registry and normalized code spans
+  - `sifter-codeintel-rust` for the first language plugin
+- Add `flake.nix` modeled on `untangle`, but expanded for the full Rust QA toolchain.
+- Add `package.nix` and `default.nix` so the project builds cleanly through Nix.
+- Add `.envrc` with `use flake`.
+- Configure the default stable Rust toolchain in the flake with:
+  - `rustfmt`
+  - `clippy`
+  - `rust-src`
+  - `llvm-tools-preview`
+- Add stable dev-shell tools:
+  - `cargo-nextest`
+  - `cargo-edit`
+  - `cargo-deny`
+  - `cargo-audit`
+  - `cargo-outdated`
+  - `cargo-llvm-cov`
+  - `cargo-hack`
+  - `cargo-mutants`
+- Add a nightly-oriented dev shell for:
+  - `miri`
+  - `cargo-udeps`
+- Add native build dependencies needed for Rust/tree-sitter builds in Nix.
+- Add `.config/nextest.toml` with a CI profile and JUnit output path.
+- Add `deny.toml` for license/advisory/source policy.
+- Add command documentation to `README.md` covering:
+  - entering the Nix shell
+  - standard test/lint commands
+  - when to use the nightly shell
+- Add CI workflows that run through `nix develop`.
+- Make PR-fast checks run:
+  - `cargo fmt --all --check`
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+  - `cargo nextest run --workspace --all-features`
+  - `cargo deny check`
+  - `cargo build --workspace --all-features`
+- Make slower hygiene checks run on schedule or manually:
+  - `cargo audit`
+  - `cargo outdated`
+  - `cargo hack`
+  - `cargo +nightly udeps`
+  - `cargo llvm-cov`
+  - `cargo +nightly miri test` on suitable pure-logic crates only
+  - `cargo mutants` on critical pure-logic crates only
+- Keep Miri and mutation testing scoped to crates that avoid SQLite, Tantivy, and Tree-sitter FFI-heavy paths.
+- Implement the config layer:
+  - XDG config/cache paths
+  - YAML collections
+  - contexts
+  - virtual paths using `sifter://`
+- Implement the storage layer:
+  - SQLite catalog/content tables
+  - Tantivy lexical index
+  - doc/code classification
+- Implement markdown chunking with heading-aware and code-fence-safe boundaries.
+- Implement the code-intelligence plugin trait and registry.
+- Implement the first Rust plugin using Tree-sitter.
+- Implement CLI commands:
+  - collection/context management
+  - `ls`
+  - `update`
+  - `status`
+  - `search`
+  - `symbol`
+  - `related`
+  - `get`
+  - `multi-get`
+- Implement deferred-runtime placeholders for:
+  - `embed`
+  - `vsearch`
+  - `query`
+- Add unit, integration, and formatter coverage for both doc and code retrieval.
+- Add acceptance fixtures proving `sifter` can index and search its own repo.
