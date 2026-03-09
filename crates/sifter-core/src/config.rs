@@ -156,6 +156,36 @@ pub fn config_file_path(index_name: &str) -> Result<PathBuf> {
     Ok(project_dirs.config_dir().join(format!("{index_name}.yml")))
 }
 
+pub fn cache_file_path(index_name: &str) -> Result<PathBuf> {
+    if let Ok(path) = env::var("SIFTER_CACHE_FILE") {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Ok(dir) = env::var("SIFTER_CACHE_HOME") {
+        return Ok(PathBuf::from(dir).join(format!("{index_name}.sqlite3")));
+    }
+
+    let project_dirs = ProjectDirs::from("", "", "sifter")
+        .ok_or_else(|| anyhow!("failed to resolve XDG cache directory"))?;
+    Ok(project_dirs
+        .cache_dir()
+        .join(format!("{index_name}.sqlite3")))
+}
+
+pub fn cache_dir_path(index_name: &str) -> Result<PathBuf> {
+    if let Ok(path) = env::var("SIFTER_CACHE_DIR") {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Ok(dir) = env::var("SIFTER_CACHE_HOME") {
+        return Ok(PathBuf::from(dir).join(index_name));
+    }
+
+    let project_dirs = ProjectDirs::from("", "", "sifter")
+        .ok_or_else(|| anyhow!("failed to resolve XDG cache directory"))?;
+    Ok(project_dirs.cache_dir().join(index_name))
+}
+
 pub fn matching_contexts(config: &Config, candidate: &str) -> Vec<ContextMatch> {
     let mut matches = config
         .contexts
@@ -220,5 +250,21 @@ mod tests {
 
         let yaml = serde_yaml::to_string(&config).expect("serialize config");
         assert!(yaml.contains("includeByDefault: true"));
+    }
+
+    #[test]
+    fn cache_dir_uses_override_when_present() {
+        let original = env::var_os("SIFTER_CACHE_DIR");
+        unsafe {
+            env::set_var("SIFTER_CACHE_DIR", "/tmp/sifter-cache-test");
+        }
+
+        let path = cache_dir_path("default").expect("cache path");
+        assert_eq!(path, PathBuf::from("/tmp/sifter-cache-test"));
+
+        match original {
+            Some(value) => unsafe { env::set_var("SIFTER_CACHE_DIR", value) },
+            None => unsafe { env::remove_var("SIFTER_CACHE_DIR") },
+        }
     }
 }

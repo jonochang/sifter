@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
-use sifter_core::config::{ConfigStore, matching_contexts};
+use sifter_core::config::{ConfigStore, cache_file_path, matching_contexts};
+use sifter_store::index::Store;
 
 #[derive(Debug, Parser)]
 #[command(name = "sifter")]
@@ -18,6 +19,16 @@ struct Cli {
 enum Command {
     Collection(CollectionCommand),
     Context(ContextCommand),
+    Update(OutputArgs),
+    Status(OutputArgs),
+    Search(SearchCommand),
+    Symbol(SearchCommand),
+    Related(RelatedCommand),
+    Get(GetCommand),
+    MultiGet(MultiGetCommand),
+    Embed(VectorCommand),
+    Vsearch(VectorCommand),
+    Query(VectorCommand),
 }
 
 #[derive(Debug, Args)]
@@ -71,6 +82,35 @@ struct ContextCheck {
 #[derive(Debug, Args)]
 struct ContextRemove {
     scope: String,
+}
+
+#[derive(Debug, Args)]
+struct SearchCommand {
+    query: String,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Debug, Args)]
+struct GetCommand {
+    reference: String,
+}
+
+#[derive(Debug, Args)]
+struct RelatedCommand {
+    reference: String,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Debug, Args)]
+struct MultiGetCommand {
+    references: String,
+}
+
+#[derive(Debug, Args)]
+struct VectorCommand {
+    query: Option<String>,
 }
 
 #[derive(Debug, Args, Clone, Default)]
@@ -177,8 +217,83 @@ fn execute(command: Command) -> Result<()> {
                 }));
             }
         },
+        Command::Update(output) => {
+            let config = store.load()?;
+            let db_path = cache_file_path("default")?;
+            let mut index = Store::open(&db_path)?;
+            let indexed_files = index.rebuild(&config)?;
+            print_output(output.json, &json!({ "indexed_files": indexed_files }))?;
+        }
+        Command::Status(output) => {
+            let config = store.load()?;
+            let db_path = cache_file_path("default")?;
+            let index = Store::open(&db_path)?;
+            print_output(output.json, &serde_json::to_value(index.status(&config)?)?)?;
+        }
+        Command::Search(args) => {
+            let db_path = cache_file_path("default")?;
+            let index = Store::open(&db_path)?;
+            let results = index.search(&args.query)?;
+            print_output(
+                args.output.json,
+                &json!({
+                    "results": results,
+                }),
+            )?;
+        }
+        Command::Symbol(args) => {
+            let db_path = cache_file_path("default")?;
+            let index = Store::open(&db_path)?;
+            let results = index.symbol(&args.query)?;
+            print_output(args.output.json, &json!({ "results": results }))?;
+        }
+        Command::Related(args) => {
+            let db_path = cache_file_path("default")?;
+            let index = Store::open(&db_path)?;
+            let results = index.related(&args.reference)?;
+            print_output(args.output.json, &json!({ "results": results }))?;
+        }
+        Command::Get(args) => {
+            let db_path = cache_file_path("default")?;
+            let index = Store::open(&db_path)?;
+            let file = index
+                .get(&args.reference)?
+                .ok_or_else(|| anyhow!("reference not found: {}", args.reference))?;
+            print_json(&json!({
+                "docid": file.docid,
+                "file": file.path,
+                "virtual_path": file.virtual_path,
+                "kind": file.kind,
+                "title": file.title,
+                "language": file.language,
+                "content": file.content,
+                "line_start": file.line_start,
+                "line_end": file.line_end,
+            }));
+        }
+        Command::MultiGet(args) => {
+            let db_path = cache_file_path("default")?;
+            let index = Store::open(&db_path)?;
+            let results = index.multi_get(&args.references)?;
+            print_json(&json!({
+                "results": results,
+            }));
+        }
+        Command::Embed(args) => return vector_pending("embed", args.query.as_deref()),
+        Command::Vsearch(args) => return vector_pending("vsearch", args.query.as_deref()),
+        Command::Query(args) => return vector_pending("query", args.query.as_deref()),
     }
     Ok(())
+}
+
+fn vector_pending(command: &str, _query: Option<&str>) -> Result<()> {
+    let payload = json!({
+        "error": "vector_runtime_pending",
+        "command": command,
+        "message": "vector runtime is not implemented in this build yet",
+    });
+    print_json(&payload);
+    std::process::exit(2);
 }
 
 fn print_output(force_json: bool, value: &serde_json::Value) -> Result<()> {

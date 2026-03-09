@@ -11,6 +11,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 sifter-core = { path = "../sifter-core" }
+sifter-store = { path = "../sifter-store" }
 
 [dev-dependencies]
 assert_cmd.workspace = true
