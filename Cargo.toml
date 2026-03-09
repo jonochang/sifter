@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/sifter-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+authors = ["Jon Ochang"]
+repository = "https://github.com/jonochang/sifter"
+
+[workspace.dependencies]
+assert_cmd = "2.0.17"
+clap = { version = "4.5.32", features = ["derive"] }
+predicates = "3.1.3"
