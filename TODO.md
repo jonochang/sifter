@@ -62,6 +62,11 @@
   - deferred vector commands
   - plugin registry selection
   - Rust symbol extraction
+- Committed the work in stable milestones:
+  - `bootstrap Rust workspace`
+  - `add nix development environment`
+  - `add config and context management`
+  - `add indexing and code intelligence`
 
 ## TODO
 
