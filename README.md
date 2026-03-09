@@ -1,6 +1,30 @@
 # sifter
 A local-first search engine for code and documentation, combining BM25, vector search, and Tree-sitter code intelligence in a single binary.
 
+## Current CLI
+
+The current MVP supports:
+- `sifter collection add`
+- `sifter collection list`
+- `sifter context add|list|check|rm`
+- `sifter update`
+- `sifter status`
+- `sifter search`
+- `sifter symbol`
+- `sifter related`
+- `sifter get`
+- `sifter multi-get`
+- `sifter embed|vsearch|query` as explicit deferred-runtime placeholders
+
+Example:
+
+```bash
+sifter collection add . --name repo
+sifter update --json
+sifter search "retry budget" --json
+sifter symbol RetryPolicy --json
+```
+
 ## Development
 
 Enter the pinned development shell with `nix develop`. If you use direnv, `.envrc` enables this automatically.

@@ -30,84 +30,60 @@
   - Nix flake as the primary dev environment
   - stable default shell for day-to-day work
   - separate nightly-oriented checks for `miri` and `cargo-udeps`
-
-## TODO
-
-- Initialize a Cargo workspace for `sifter` instead of a single crate.
-- Split the codebase into clear boundaries:
-  - `sifter-cli`
-  - `sifter-core` for pure logic and shared types
-  - `sifter-store` for SQLite/Tantivy adapters
-  - `sifter-codeintel` for plugin registry and normalized code spans
-  - `sifter-codeintel-rust` for the first language plugin
-- Add `flake.nix` modeled on `untangle`, but expanded for the full Rust QA toolchain.
-- Add `package.nix` and `default.nix` so the project builds cleanly through Nix.
-- Add `.envrc` with `use flake`.
-- Configure the default stable Rust toolchain in the flake with:
-  - `rustfmt`
-  - `clippy`
-  - `rust-src`
-  - `llvm-tools-preview`
-- Add stable dev-shell tools:
-  - `cargo-nextest`
-  - `cargo-edit`
-  - `cargo-deny`
-  - `cargo-audit`
-  - `cargo-outdated`
-  - `cargo-llvm-cov`
-  - `cargo-hack`
-  - `cargo-mutants`
-- Add a nightly-oriented dev shell for:
-  - `miri`
-  - `cargo-udeps`
-- Add native build dependencies needed for Rust/tree-sitter builds in Nix.
-- Add `.config/nextest.toml` with a CI profile and JUnit output path.
-- Add `deny.toml` for license/advisory/source policy.
-- Add command documentation to `README.md` covering:
-  - entering the Nix shell
-  - standard test/lint commands
-  - when to use the nightly shell
-- Add CI workflows that run through `nix develop`.
-- Make PR-fast checks run:
-  - `cargo fmt --all --check`
-  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-  - `cargo nextest run --workspace --all-features`
-  - `cargo deny check`
-  - `cargo build --workspace --all-features`
-- Make slower hygiene checks run on schedule or manually:
-  - `cargo audit`
-  - `cargo outdated`
-  - `cargo hack`
-  - `cargo +nightly udeps`
-  - `cargo llvm-cov`
-  - `cargo +nightly miri test` on suitable pure-logic crates only
-  - `cargo mutants` on critical pure-logic crates only
-- Keep Miri and mutation testing scoped to crates that avoid SQLite, Tantivy, and Tree-sitter FFI-heavy paths.
-- Implement the config layer:
-  - XDG config/cache paths
-  - YAML collections
-  - contexts
-  - virtual paths using `sifter://`
-- Implement the storage layer:
-  - SQLite catalog/content tables
-  - Tantivy lexical index
-  - doc/code classification
-- Implement markdown chunking with heading-aware and code-fence-safe boundaries.
-- Implement the code-intelligence plugin trait and registry.
-- Implement the first Rust plugin using Tree-sitter.
-- Implement CLI commands:
-  - collection/context management
-  - `ls`
+- Bootstrapped a Rust workspace with these crates:
+  - `sifter`
+  - `sifter-core`
+  - `sifter-store`
+  - `sifter-codeintel`
+  - `sifter-codeintel-rust`
+- Added the Nix flake, package files, CI workflows, `deny.toml`, `.envrc`, and `nextest` config, then verified the workspace through `nix develop`.
+- Implemented the config layer:
+  - XDG-style config and cache path resolution with environment overrides for tests
+  - YAML-backed collections
+  - context add/list/check/rm
+- Implemented the first retrieval/indexing MVP:
+  - SQLite-backed file catalog and FTS index
   - `update`
   - `status`
   - `search`
-  - `symbol`
-  - `related`
   - `get`
   - `multi-get`
-- Implement deferred-runtime placeholders for:
-  - `embed`
-  - `vsearch`
-  - `query`
-- Add unit, integration, and formatter coverage for both doc and code retrieval.
+  - deferred `embed`/`vsearch`/`query` error contract
+- Implemented the first code-intelligence slice:
+  - plugin registry in `sifter-codeintel`
+  - Rust Tree-sitter plugin in `sifter-codeintel-rust`
+  - symbol extraction for functions, structs, enums, traits, impls, constants, type aliases, and modules
+  - `symbol`
+  - `related`
+- Added red/green CLI and unit coverage for:
+  - version output
+  - collection/context management
+  - indexing/search/get/multi-get/status
+  - deferred vector commands
+  - plugin registry selection
+  - Rust symbol extraction
+
+## TODO
+
+- Replace the current SQLite FTS-only lexical path with the planned Tantivy + SQLite split, or explicitly revise the architecture docs if SQLite FTS remains the chosen implementation.
+- Implement heading-aware markdown chunking instead of whole-file indexing.
+- Expand `get` and `multi-get` to fully support docids, virtual paths, line slicing, and collection-relative glob behavior.
+- Add the remaining CLI surface from the plan:
+  - `ls`
+  - collection remove/rename/show/include/exclude/update-cmd
+  - context/global-context refinements from QMD compatibility
+- Add richer search filters and formatters:
+  - `--code`
+  - `--docs`
+  - `--csv`
+  - `--md`
+  - `--xml`
+  - `--files`
+  - `--full`
+  - `--line-numbers`
+- Extend `symbol` with `--defs` and `--refs`.
+- Make `related` use stored symbol/reference/import relations instead of the current content-overlap heuristic.
+- Add more languages by implementing additional `LanguagePlugin` crates and registering them in the store/indexer.
+- Add store and formatter unit tests directly in `sifter-store`.
 - Add acceptance fixtures proving `sifter` can index and search its own repo.
+- Decide whether Miri and mutation testing should target `sifter-core`, `sifter-codeintel`, or a new pure-logic crate once more ranking/chunking logic exists.
