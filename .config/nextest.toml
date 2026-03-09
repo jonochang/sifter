@@ -1,0 +1,6 @@
+[profile.ci]
+fail-fast = false
+status-level = "fail"
+
+[profile.ci.junit]
+path = "target/nextest/ci/results.xml"

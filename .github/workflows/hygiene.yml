@@ -1,0 +1,37 @@
+name: Hygiene
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1"
+
+jobs:
+  security:
+    name: Security And Dependency Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: cargo audit
+        run: nix develop --command cargo audit
+      - name: cargo outdated
+        run: nix develop --command cargo outdated --workspace
+      - name: cargo hack
+        run: nix develop --command cargo hack check --workspace --feature-powerset
+
+  nightly:
+    name: Nightly Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: cargo udeps
+        run: nix develop .#nightly --command cargo +nightly udeps --workspace
+      - name: cargo llvm-cov
+        run: nix develop --command cargo llvm-cov --workspace --all-features --summary-only
+      - name: cargo miri
+        run: nix develop .#nightly --command cargo +nightly miri test -p sifter
+      - name: cargo mutants
+        run: nix develop --command cargo mutants -p sifter --in-place --timeout 120
