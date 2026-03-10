@@ -8,7 +8,7 @@
 
 rustPlatform.buildRustPackage {
   pname = "sifter";
-  version = "0.1.0";
+  version = "0.2.0";
   src = lib.cleanSource ./.;
 
   cargoLock = {
@@ -23,7 +23,7 @@ rustPlatform.buildRustPackage {
   passthru.tests.version = testers.testVersion {
     package = rustPlatform.buildRustPackage {
       pname = "sifter";
-      version = "0.1.0";
+      version = "0.2.0";
       src = lib.cleanSource ./.;
       cargoLock = {
         lockFile = ./Cargo.lock;

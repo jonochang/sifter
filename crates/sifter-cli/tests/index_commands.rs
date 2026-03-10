@@ -21,12 +21,20 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     let repo = temp.path().join("repo");
     let docs = repo.join("docs");
     let src = repo.join("src");
+    let git_hooks = repo.join(".git/hooks");
+    let target_dir = repo.join("target/debug");
     fs::create_dir_all(&docs).expect("create docs dir");
     fs::create_dir_all(&src).expect("create src dir");
+    fs::create_dir_all(&git_hooks).expect("create .git hooks dir");
+    fs::create_dir_all(&target_dir).expect("create target dir");
     let doc_path = docs.join("brief.md");
     let code_path = src.join("lib.rs");
     let client_path = src.join("client.rs");
+    let options_path = src.join("options.rs");
     let notes_path = src.join("notes.rs");
+    let git_sample_path = git_hooks.join("fsmonitor-watchman.sample");
+    let target_artifact_path = target_dir.join("build.log");
+    let ignored_path = src.join("ignored.rs");
     fs::write(
         &doc_path,
         "# Retry Budget\n\nSifter should index retry budget design notes.\n\n## Rollout\n\nrollout checklist line 1\nrollout checklist line 2\n",
@@ -39,15 +47,28 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     .expect("write code");
     fs::write(
         &client_path,
-        "use crate::RetryPolicy;\n\npub fn build(policy: RetryPolicy) -> RetryPolicy { policy }\n",
+        "use crate::{RequestOptions, RetryPolicy};\n\npub fn build(policy: RetryPolicy, options: RequestOptions) -> RetryPolicy { let _ = options.retries; policy }\n",
     )
     .expect("write related code");
+    fs::write(
+        &options_path,
+        "pub struct RequestOptions { pub retries: usize }\n",
+    )
+    .expect("write dependency definition");
     fs::write(
         &notes_path,
         "// RetryPolicy is mentioned here, but this file does not depend on it.\n\
          pub fn note() -> &'static str { \"RetryPolicy\" }\n",
     )
     .expect("write unrelated note");
+    fs::write(&repo.join(".gitignore"), "src/ignored.rs\n").expect("write .gitignore");
+    fs::write(
+        &ignored_path,
+        "pub struct IgnoredType;\npub fn ignored_retry() -> usize { 1 }\n",
+    )
+    .expect("write ignored source");
+    fs::write(&git_sample_path, "retry hook sample\n").expect("write .git sample");
+    fs::write(&target_artifact_path, "retry artifact\n").expect("write target artifact");
     let canonical_doc_path = fs::canonicalize(&doc_path).unwrap_or_else(|_| doc_path.clone());
     let canonical_code_path = fs::canonicalize(&code_path).unwrap_or_else(|_| code_path.clone());
     let canonical_client_path =
@@ -81,22 +102,25 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .args(["index", "update", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"indexed_files\":4"));
+        .stdout(predicate::str::contains("\"indexed_files\":5"));
 
     command_with_env(&config_file, &cache_home)
         .args(["index", "status", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"indexed_files\":4"))
+        .stdout(predicate::str::contains("\"indexed_files\":5"))
         .stdout(predicate::str::contains("\"indexed_docs\":1"))
-        .stdout(predicate::str::contains("\"indexed_code\":3"))
+        .stdout(predicate::str::contains("\"indexed_code\":4"))
         .stdout(predicate::str::contains("\"vector_runtime\":\"pending\""));
 
     command_with_env(&config_file, &cache_home)
         .args(["search", "retry", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Retry Budget"));
+        .stdout(predicate::str::contains("Retry Budget"))
+        .stdout(predicate::str::contains("fsmonitor-watchman.sample").not())
+        .stdout(predicate::str::contains("build.log").not())
+        .stdout(predicate::str::contains("ignored.rs").not());
 
     command_with_env(&config_file, &cache_home)
         .args(["search", "rollout", "--docs", "--json"])
@@ -157,6 +181,15 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
             "\"shared_symbols\":[\"RetryPolicy\"]",
         ))
         .stdout(predicate::str::contains(canonical_notes_path.to_string_lossy().as_ref()).not());
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "--related"])
+        .arg(&client_path)
+        .args(["--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("options.rs"))
+        .stdout(predicate::str::contains("RequestOptions"));
 
     let get_output = command_with_env(&config_file, &cache_home)
         .args(["show"])
@@ -244,6 +277,18 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains("<results>"));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "--symbol", "MissingSymbol", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("{\"results\":[]}"));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "--related", "sifter://repo/src/missing.rs", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("{\"results\":[]}"));
 }
 
 #[test]
@@ -263,4 +308,18 @@ fn semantic_and_hybrid_search_return_pending_runtime_error() {
                 "\"error\":\"vector_runtime_pending\"",
             ));
     }
+}
+
+#[test]
+fn update_warns_when_nothing_is_indexed() {
+    let temp = tempdir().expect("create tempdir");
+    let config_file = temp.path().join("config.yml");
+    let cache_home = temp.path().join("cache");
+
+    command_with_env(&config_file, &cache_home)
+        .args(["index", "update", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"indexed_files\":0"))
+        .stdout(predicate::str::contains("\"warning\":\"index is empty; check the collection path, mask, and ignore rules\""));
 }

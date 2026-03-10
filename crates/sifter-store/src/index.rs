@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use blake3::Hasher;
-use globset::{Glob, GlobSetBuilder};
+use globset::{Glob, GlobMatcher, GlobSetBuilder};
 use ignore::WalkBuilder;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -137,6 +137,34 @@ struct RelatedAccumulator {
     shared_symbols: BTreeSet<String>,
 }
 
+#[derive(Debug)]
+struct SymbolRecord {
+    docid: String,
+    path: String,
+    collection: String,
+    name: String,
+}
+
+#[derive(Debug)]
+struct RelationRecord {
+    docid: String,
+    path: String,
+    collection: String,
+    name: String,
+    kind: String,
+}
+
+#[derive(Debug, Default)]
+struct GitignoreRules {
+    rules: Vec<GitignoreRule>,
+}
+
+#[derive(Debug)]
+struct GitignoreRule {
+    matcher: GlobMatcher,
+    whitelist: bool,
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -174,8 +202,14 @@ impl Store {
         let mut count = 0usize;
         for (name, collection) in &config.collections {
             let glob = compile_glob(&collection.pattern)?;
+            let ignored = compile_globs(collection.ignore.iter().map(String::as_str))?;
+            let gitignored = build_gitignore(&collection.path)?;
             let mut walker = WalkBuilder::new(&collection.path);
-            walker.hidden(false).git_ignore(true).git_exclude(true);
+            walker
+                .hidden(false)
+                .git_ignore(true)
+                .git_exclude(true)
+                .require_git(false);
 
             for entry in walker.build() {
                 let entry = match entry {
@@ -192,6 +226,12 @@ impl Store {
                     Err(_) => continue,
                 };
                 if !glob.is_match(&relative_path) {
+                    continue;
+                }
+                if ignored.is_match(&relative_path) {
+                    continue;
+                }
+                if gitignored.is_ignored(&relative_path) {
                     continue;
                 }
 
@@ -295,11 +335,7 @@ impl Store {
     }
 
     pub fn status(&self, config: &Config) -> Result<Status> {
-        let indexed_files = self
-            .connection
-            .query_row("SELECT COUNT(*) FROM files", [], |row| {
-                row.get::<_, usize>(0)
-            })?;
+        let indexed_files = self.indexed_file_count()?;
         let indexed_docs = self.connection.query_row(
             "SELECT COUNT(*) FROM files WHERE kind = 'doc'",
             [],
@@ -552,42 +588,79 @@ impl Store {
             .symbols_for_docid(&target.docid)?
             .into_iter()
             .collect::<BTreeSet<_>>();
-        if target_symbols.is_empty() {
+        let target_relations = self
+            .relations_for_docid(&target.docid)?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        if target_symbols.is_empty() && target_relations.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut statement = self.connection.prepare(
+        let mut relation_statement = self.connection.prepare(
             "SELECT relations.docid, files.path, files.collection, relations.name, relations.kind
              FROM relations
              JOIN files ON files.docid = relations.docid
              WHERE files.docid != ?
              ORDER BY files.path",
         )?;
-        let rows = statement.query_map([target.docid.as_str()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            ))
+        let relation_rows = relation_statement.query_map([target.docid.as_str()], |row| {
+            Ok(RelationRecord {
+                docid: row.get(0)?,
+                path: row.get(1)?,
+                collection: row.get(2)?,
+                name: row.get(3)?,
+                kind: row.get(4)?,
+            })
+        })?;
+        let mut symbol_statement = self.connection.prepare(
+            "SELECT symbols.docid, files.path, files.collection, symbols.name
+             FROM symbols
+             JOIN files ON files.docid = symbols.docid
+             WHERE files.docid != ?
+             ORDER BY files.path",
+        )?;
+        let symbol_rows = symbol_statement.query_map([target.docid.as_str()], |row| {
+            Ok(SymbolRecord {
+                docid: row.get(0)?,
+                path: row.get(1)?,
+                collection: row.get(2)?,
+                name: row.get(3)?,
+            })
         })?;
 
         let mut related = HashMap::<String, RelatedAccumulator>::new();
-        for row in rows {
-            let (docid, path, collection, name, kind) = row?;
-            if !target_symbols.contains(&name) {
+        for row in relation_rows {
+            let relation = row?;
+            if !target_symbols.contains(&relation.name) {
                 continue;
             }
 
-            let entry = related.entry(docid).or_insert_with(|| RelatedAccumulator {
-                file: path,
-                collection,
+            let entry = related
+                .entry(relation.docid)
+                .or_insert_with(|| RelatedAccumulator {
+                    file: relation.path,
+                    collection: relation.collection,
+                    score: 0,
+                    shared_symbols: BTreeSet::new(),
+                });
+            entry.score += relation_weight(&relation.kind);
+            entry.shared_symbols.insert(relation.name);
+        }
+
+        for row in symbol_rows {
+            let symbol = row?;
+            if !target_relations.contains(&symbol.name) {
+                continue;
+            }
+
+            let entry = related.entry(symbol.docid).or_insert_with(|| RelatedAccumulator {
+                file: symbol.path,
+                collection: symbol.collection,
                 score: 0,
                 shared_symbols: BTreeSet::new(),
             });
-            entry.score += relation_weight(&kind);
-            entry.shared_symbols.insert(name);
+            entry.score += dependency_weight(&symbol.name, &target_symbols);
+            entry.shared_symbols.insert(symbol.name);
         }
 
         let mut results = related
@@ -660,6 +733,14 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    fn relations_for_docid(&self, docid: &str) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT name FROM relations WHERE docid = ? ORDER BY name")?;
+        let rows = statement.query_map([docid], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     pub fn docid_for_path(&self, path: &str) -> Result<Option<String>> {
         self.connection
             .query_row(
@@ -668,6 +749,12 @@ impl Store {
                 |row| row.get(0),
             )
             .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn indexed_file_count(&self) -> Result<usize> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get::<_, usize>(0))
             .map_err(Into::into)
     }
 }
@@ -758,9 +845,17 @@ fn lexical_schema() -> Schema {
 
 fn relation_weight(kind: &str) -> usize {
     match kind {
-        "import" => 3,
-        "mention" => 1,
-        _ => 1,
+        "import" => 5,
+        "mention" => 2,
+        _ => 2,
+    }
+}
+
+fn dependency_weight(name: &str, target_symbols: &BTreeSet<String>) -> usize {
+    if target_symbols.contains(name) {
+        2
+    } else {
+        4
     }
 }
 
@@ -784,9 +879,160 @@ fn normalize_lookup_reference(reference: &str) -> Result<String> {
 }
 
 fn compile_glob(pattern: &str) -> Result<globset::GlobSet> {
+    compile_globs([pattern])
+}
+
+fn compile_globs<'a>(patterns: impl IntoIterator<Item = &'a str>) -> Result<globset::GlobSet> {
     let mut builder = GlobSetBuilder::new();
-    builder.add(Glob::new(pattern)?);
+    for pattern in patterns {
+        builder.add(Glob::new(pattern)?);
+    }
     builder.build().context("failed to build collection glob")
+}
+
+fn build_gitignore(root: &Path) -> Result<GitignoreRules> {
+    let mut rules = GitignoreRules::default();
+    add_gitignore_files(root, root, &mut rules)?;
+    Ok(rules)
+}
+
+fn add_gitignore_files(root: &Path, directory: &Path, rules: &mut GitignoreRules) -> Result<()> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+
+        if file_type.is_file() && path.file_name().is_some_and(|name| name == ".gitignore") {
+            add_gitignore_file(root, &path, rules)?;
+            continue;
+        }
+
+        if file_type.is_dir() {
+            add_gitignore_files(root, &path, rules)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn add_gitignore_file(root: &Path, gitignore_path: &Path, rules: &mut GitignoreRules) -> Result<()> {
+    let base = gitignore_path
+        .parent()
+        .ok_or_else(|| anyhow!("invalid .gitignore path: {}", gitignore_path.display()))?;
+    let relative_base = base.strip_prefix(root).unwrap_or(base);
+    let contents = fs::read_to_string(gitignore_path)
+        .with_context(|| format!("failed to read {}", gitignore_path.display()))?;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let (whitelist, pattern) = if let Some(pattern) = trimmed.strip_prefix('!') {
+            (true, pattern)
+        } else {
+            (false, trimmed)
+        };
+        let pattern = pattern.trim();
+        if pattern.is_empty() {
+            continue;
+        }
+
+        for glob in gitignore_globs(relative_base, pattern) {
+            rules.rules.push(GitignoreRule {
+                matcher: Glob::new(&glob)
+                    .with_context(|| {
+                        format!(
+                            "failed to parse .gitignore pattern '{pattern}' from {}",
+                            gitignore_path.display()
+                        )
+                    })?
+                    .compile_matcher(),
+                whitelist,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn gitignore_globs(relative_base: &Path, pattern: &str) -> Vec<String> {
+    let directory_only = pattern.ends_with('/');
+    let trimmed = pattern.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let anchored = trimmed.starts_with('/');
+    let trimmed = trimmed.trim_start_matches('/');
+    let base = path_glob_prefix(relative_base);
+
+    let mut globs = Vec::new();
+    if anchored || trimmed.contains('/') {
+        let exact = join_glob_prefix(&base, trimmed);
+        globs.push(exact.clone());
+        globs.push(format!("{exact}/**"));
+    } else {
+        let direct = join_glob_prefix(&base, trimmed);
+        let nested = if base.is_empty() {
+            format!("**/{trimmed}")
+        } else {
+            format!("{base}/**/{trimmed}")
+        };
+        globs.push(direct.clone());
+        globs.push(format!("{direct}/**"));
+        globs.push(nested.clone());
+        globs.push(format!("{nested}/**"));
+    }
+
+    if directory_only {
+        globs.retain(|glob| glob.contains("/**"));
+    }
+
+    globs.sort();
+    globs.dedup();
+    globs
+}
+
+fn path_glob_prefix(path: &Path) -> String {
+    let display = path.to_string_lossy().replace('\\', "/");
+    if display == "." {
+        String::new()
+    } else {
+        display.trim_matches('/').to_string()
+    }
+}
+
+fn join_glob_prefix(prefix: &str, pattern: &str) -> String {
+    if prefix.is_empty() {
+        pattern.to_string()
+    } else {
+        format!("{prefix}/{pattern}")
+    }
+}
+
+impl GitignoreRules {
+    fn is_ignored(&self, path: &Path) -> bool {
+        let candidate = path.to_string_lossy().replace('\\', "/");
+        let mut ignored = false;
+        for rule in &self.rules {
+            if rule.matcher.is_match(&candidate) {
+                ignored = !rule.whitelist;
+            }
+        }
+        ignored
+    }
 }
 
 fn classify_kind(path: &Path) -> &'static str {

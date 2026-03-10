@@ -22,7 +22,7 @@ pub struct Collection {
     pub path: PathBuf,
     #[serde(default = "default_pattern")]
     pub pattern: String,
-    #[serde(default)]
+    #[serde(default = "default_ignore")]
     pub ignore: Vec<String>,
     #[serde(default)]
     pub context: Option<String>,
@@ -38,7 +38,7 @@ impl Default for Collection {
         Self {
             path: PathBuf::new(),
             pattern: default_pattern(),
-            ignore: Vec::new(),
+            ignore: default_ignore(),
             context: None,
             update: None,
             include_by_default: default_include_by_default(),
@@ -48,6 +48,31 @@ impl Default for Collection {
 
 fn default_pattern() -> String {
     "**/*".to_string()
+}
+
+fn default_ignore() -> Vec<String> {
+    [
+        ".git",
+        ".git/**",
+        ".gitignore",
+        ".gitattributes",
+        ".gitmodules",
+        ".direnv",
+        ".direnv/**",
+        ".jj",
+        ".jj/**",
+        "target",
+        "target/**",
+        "dist",
+        "dist/**",
+        "build",
+        "build/**",
+        "node_modules",
+        "node_modules/**",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 const fn default_include_by_default() -> bool {

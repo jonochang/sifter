@@ -18,9 +18,13 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Manage collections and scoped context.
     Config(ConfigCommand),
+    /// Build or inspect the local index.
     Index(IndexCommand),
+    /// Search docs, code, symbols, or related files.
     Search(SearchCommand),
+    /// Show indexed content by path, virtual path, or docid.
     Show(ShowCommand),
 }
 
@@ -44,22 +48,31 @@ struct CollectionCommand {
 
 #[derive(Debug, Subcommand)]
 enum CollectionSubcommand {
+    /// Add a collection rooted at a filesystem path.
     Add(CollectionAdd),
+    /// List configured collections.
     List(OutputArgs),
+    /// Show one collection's stored configuration.
     Show(CollectionShow),
+    /// Remove a collection from config.
     Remove(CollectionRemove),
+    /// Rename an existing collection.
     Rename(CollectionRename),
+    /// Include a collection by default during indexing.
     Include(CollectionInclude),
+    /// Exclude a collection by default during indexing.
     Exclude(CollectionExclude),
+    /// Set or clear the collection's custom update command.
     UpdateCmd(CollectionUpdateCommand),
 }
 
 #[derive(Debug, Args)]
 struct CollectionAdd {
+    /// Filesystem root to index.
     path: PathBuf,
-    #[arg(long)]
+    #[arg(long, help = "Stable collection name used in sifter:// paths.")]
     name: String,
-    #[arg(long = "mask")]
+    #[arg(long = "mask", help = "Glob used to select files within the collection root.")]
     pattern: Option<String>,
 }
 
@@ -105,16 +118,23 @@ struct ContextCommand {
 
 #[derive(Debug, Subcommand)]
 enum ContextSubcommand {
+    /// Add or replace a scoped context string.
     Add(ContextAdd),
+    /// Set or clear the fallback global context.
     Global(ContextGlobal),
+    /// List stored contexts.
     List(OutputArgs),
+    /// Show contexts that apply to a path or virtual path.
     Check(ContextCheck),
+    /// Remove a scoped context entry.
     Rm(ContextRemove),
 }
 
 #[derive(Debug, Args)]
 struct ContextAdd {
+    /// Scope prefix such as sifter://repo/src.
     scope: String,
+    /// Human-readable context value.
     value: String,
 }
 
@@ -145,7 +165,9 @@ struct IndexCommand {
 
 #[derive(Debug, Subcommand)]
 enum IndexSubcommand {
+    /// Rebuild the local lexical and metadata index.
     Update(OutputArgs),
+    /// Report what is currently indexed.
     Status(OutputArgs),
 }
 
@@ -166,22 +188,23 @@ enum IndexSubcommand {
         .multiple(false)
 ))]
 struct SearchCommand {
+    /// Free-text query for lexical search.
     query: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "Request semantic search. Returns a pending-runtime error in this build.")]
     semantic: bool,
-    #[arg(long)]
+    #[arg(long, help = "Request hybrid lexical plus semantic search. Returns a pending-runtime error in this build.")]
     hybrid: bool,
-    #[arg(long)]
+    #[arg(long, help = "Search indexed symbols by exact or prefix name.")]
     symbol: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "Limit symbol search to definitions.")]
     defs: bool,
-    #[arg(long)]
+    #[arg(long, help = "Limit symbol search to reference-like relation hits.")]
     refs: bool,
-    #[arg(long)]
+    #[arg(long, help = "Find files related to an indexed file or virtual path.")]
     related: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "Restrict lexical search to documentation files.")]
     docs: bool,
-    #[arg(long)]
+    #[arg(long, help = "Restrict lexical search to code files.")]
     code: bool,
     #[command(flatten)]
     output: OutputArgs,
@@ -189,10 +212,11 @@ struct SearchCommand {
 
 #[derive(Debug, Args)]
 struct ShowCommand {
+    /// Indexed path, sifter:// path, #docid, or glob.
     references: Vec<String>,
-    #[arg(short = 'l', long = "max-lines")]
+    #[arg(short = 'l', long = "max-lines", help = "Limit the number of lines shown from the selected starting line.")]
     max_lines: Option<usize>,
-    #[arg(long = "line-numbers")]
+    #[arg(long = "line-numbers", help = "Prefix output lines with 1-based line numbers.")]
     line_numbers: bool,
     #[command(flatten)]
     output: OutputArgs,
@@ -205,17 +229,17 @@ struct ShowCommand {
         .multiple(false)
 ))]
 struct OutputArgs {
-    #[arg(long)]
+    #[arg(long, help = "Emit JSON output.")]
     json: bool,
-    #[arg(long)]
+    #[arg(long, help = "Emit CSV output.")]
     csv: bool,
-    #[arg(long)]
+    #[arg(long, help = "Emit Markdown output.")]
     md: bool,
-    #[arg(long)]
+    #[arg(long, help = "Emit XML output.")]
     xml: bool,
-    #[arg(long)]
+    #[arg(long, help = "Print only matching file paths.")]
     files: bool,
-    #[arg(long)]
+    #[arg(long, help = "Include full stored content in search results when available.")]
     full: bool,
 }
 
@@ -391,7 +415,13 @@ fn execute_index(command: IndexCommand, config_store: &ConfigStore) -> Result<()
             let db_path = cache_file_path("default")?;
             let mut index = Store::open(&db_path)?;
             let indexed_files = index.rebuild(&config)?;
-            print_value(output.format(), &json!({ "indexed_files": indexed_files }))?;
+            let mut value = json!({ "indexed_files": indexed_files });
+            if indexed_files == 0 {
+                value["warning"] = json!(
+                    "index is empty; check the collection path, mask, and ignore rules"
+                );
+            }
+            print_value(output.format(), &value)?;
         }
         IndexSubcommand::Status(output) => {
             let config = config_store.load()?;
@@ -409,6 +439,13 @@ fn execute_index(command: IndexCommand, config_store: &ConfigStore) -> Result<()
 fn execute_search(command: SearchCommand) -> Result<()> {
     let db_path = cache_file_path("default")?;
     let index = Store::open(&db_path)?;
+    let index_is_empty = index.indexed_file_count()? == 0;
+    if index_is_empty && matches!(command.output.format(), OutputFormat::Human) {
+        println!(
+            "The index is empty. Run `sifter index update` and review your collection mask or ignore rules if you expected files."
+        );
+        return Ok(());
+    }
 
     if let Some(symbol) = &command.symbol {
         let mode = if command.refs {
@@ -417,11 +454,29 @@ fn execute_search(command: SearchCommand) -> Result<()> {
             SymbolMode::Definitions
         };
         let results = index.symbol(symbol, mode)?;
+        if results.is_empty() && matches!(command.output.format(), OutputFormat::Human) {
+            let hint = if command.refs {
+                "Try the definition view or a broader prefix."
+            } else {
+                "Try --refs or search with a shorter prefix."
+            };
+            println!("No symbol matches for '{symbol}'. {hint}");
+            return Ok(());
+        }
         return print_serialized(command.output.format(), &results, "results");
     }
 
     if let Some(reference) = &command.related {
         let results = index.related(reference)?;
+        if results.is_empty() && matches!(command.output.format(), OutputFormat::Human) {
+            let hint = if index.get(reference, None)?.is_some() {
+                "No related files were strong enough to rank yet. Try a code file with imports or symbol references."
+            } else {
+                "The reference was not found in the current index. Rebuild with `sifter index update` and use an indexed path or sifter:// ref."
+            };
+            println!("No related files found for '{reference}'. {hint}");
+            return Ok(());
+        }
         return print_serialized(command.output.format(), &results, "results");
     }
 
@@ -452,6 +507,12 @@ fn execute_search(command: SearchCommand) -> Result<()> {
             include_full_content: command.output.full,
         },
     )?;
+    if results.is_empty() && matches!(command.output.format(), OutputFormat::Human) {
+        println!(
+            "No search results for '{query}'. Try `--docs`, `--code`, or a shorter query."
+        );
+        return Ok(());
+    }
 
     if matches!(command.output.format(), OutputFormat::Files) {
         let files = results
@@ -471,6 +532,12 @@ fn execute_show(command: ShowCommand) -> Result<()> {
 
     let db_path = cache_file_path("default")?;
     let index = Store::open(&db_path)?;
+    if index.indexed_file_count()? == 0 && matches!(command.output.format(), OutputFormat::Human) {
+        println!(
+            "The index is empty. Run `sifter index update` and review your collection mask or ignore rules if you expected files."
+        );
+        return Ok(());
+    }
     let slice = if command.max_lines.is_some() || command.line_numbers {
         Some(LineSlice {
             start: 1,

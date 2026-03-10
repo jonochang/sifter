@@ -1152,7 +1152,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "sifter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1167,14 +1167,14 @@ dependencies = [
 
 [[package]]
 name = "sifter-codeintel"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "sifter-codeintel-rust"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sifter-codeintel",
  "tree-sitter",
@@ -1183,7 +1183,7 @@ dependencies = [
 
 [[package]]
 name = "sifter-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "directories",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "sifter-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",

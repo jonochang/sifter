@@ -29,6 +29,8 @@ fn collection_add_persists_yaml_config() {
     assert!(saved.contains("includeByDefault: true"));
     assert!(saved.contains("pattern:"));
     assert!(saved.contains("**/*"));
+    assert!(saved.contains("- .git"));
+    assert!(saved.contains("- target/**"));
 }
 
 #[test]
