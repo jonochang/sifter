@@ -198,6 +198,13 @@ impl ConfigStore {
         self.save(&config)?;
         Ok(config)
     }
+
+    pub fn set_global_context(&self, value: Option<String>) -> Result<Config> {
+        let mut config = self.load()?;
+        config.global_context = value;
+        self.save(&config)?;
+        Ok(config)
+    }
 }
 
 pub fn config_file_path(index_name: &str) -> Result<PathBuf> {
@@ -258,6 +265,12 @@ pub fn matching_contexts(config: &Config, candidate: &str) -> Vec<ContextMatch> 
         .collect::<Vec<_>>();
 
     matches.sort_by(|left, right| right.scope.len().cmp(&left.scope.len()));
+    if let Some(value) = &config.global_context {
+        matches.push(ContextMatch {
+            scope: "global".to_string(),
+            value: value.clone(),
+        });
+    }
     matches
 }
 
@@ -290,6 +303,24 @@ mod tests {
             .map(|item| item.scope)
             .collect::<Vec<_>>();
         assert_eq!(scopes, vec!["sifter://repo/src", "sifter://repo"]);
+    }
+
+    #[test]
+    fn context_matching_falls_back_to_global_context() {
+        let config = Config {
+            global_context: Some("workspace".to_string()),
+            contexts: BTreeMap::from([("sifter://repo/src".to_string(), "source".to_string())]),
+            ..Config::default()
+        };
+
+        let matches = matching_contexts(&config, "sifter://repo/docs/brief.md");
+        assert_eq!(
+            matches,
+            vec![ContextMatch {
+                scope: "global".to_string(),
+                value: "workspace".to_string(),
+            }]
+        );
     }
 
     #[test]

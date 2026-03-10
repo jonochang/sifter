@@ -88,6 +88,11 @@
   - Rust extraction for imports and type mentions
   - SQLite-backed relation storage and weighted related-file ranking
   - regression coverage proving prose/comment mentions do not count as related
+- Added `global_context` support end to end:
+  - `sifter config context global <value>` sets the fallback context
+  - `sifter config context global --clear` removes it
+  - `context check` includes the global fallback when present
+  - indexed results use the most specific scoped context and otherwise fall back to `global_context`
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`
@@ -99,7 +104,6 @@
 - Expand `show` to fully support collection-relative glob behavior.
 - Add the remaining CLI surface from the plan:
   - `ls`
-  - context/global-context refinements from QMD compatibility
 - Add richer search filters and formatters:
 - Extend `symbol` with `--defs` and `--refs`.
 - Add more languages by implementing additional `LanguagePlugin` crates and registering them in the store/indexer.

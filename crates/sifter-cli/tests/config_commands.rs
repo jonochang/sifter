@@ -190,3 +190,36 @@ fn context_commands_add_list_check_and_remove_contexts() {
         .success()
         .stdout(predicate::str::contains("\"contexts\":[]"));
 }
+
+#[test]
+fn context_global_can_be_set_checked_and_cleared() {
+    let temp = tempdir().expect("create tempdir");
+    let config_file = temp.path().join("config.yml");
+
+    command_with_config(&config_file)
+        .args(["config", "context", "global", "Workspace context"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"global_context\":\"Workspace context\"",
+        ));
+
+    command_with_config(&config_file)
+        .args([
+            "config",
+            "context",
+            "check",
+            "sifter://repo/docs/brief.md",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"scope\":\"global\""))
+        .stdout(predicate::str::contains("\"value\":\"Workspace context\""));
+
+    command_with_config(&config_file)
+        .args(["config", "context", "global", "--clear"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"global_context\":null"));
+}

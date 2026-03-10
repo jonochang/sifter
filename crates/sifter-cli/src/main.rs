@@ -106,6 +106,7 @@ struct ContextCommand {
 #[derive(Debug, Subcommand)]
 enum ContextSubcommand {
     Add(ContextAdd),
+    Global(ContextGlobal),
     List(OutputArgs),
     Check(ContextCheck),
     Rm(ContextRemove),
@@ -127,6 +128,13 @@ struct ContextCheck {
 #[derive(Debug, Args)]
 struct ContextRemove {
     scope: String,
+}
+
+#[derive(Debug, Args)]
+struct ContextGlobal {
+    value: Option<String>,
+    #[arg(long)]
+    clear: bool,
 }
 
 #[derive(Debug, Args)]
@@ -330,6 +338,13 @@ fn execute_config(command: ConfigCommand, config_store: &ConfigStore) -> Result<
                         "scope": args.scope,
                         "value": args.value,
                     }
+                }));
+            }
+            ContextSubcommand::Global(args) => {
+                let value = if args.clear { None } else { args.value.clone() };
+                let config = config_store.set_global_context(value)?;
+                print_json(&json!({
+                    "global_context": config.global_context,
                 }));
             }
             ContextSubcommand::List(output) => {

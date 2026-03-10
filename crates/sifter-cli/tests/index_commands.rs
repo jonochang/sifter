@@ -57,6 +57,22 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .success();
 
     command_with_env(&config_file, &cache_home)
+        .args(["config", "context", "global", "Workspace docs and code"])
+        .assert()
+        .success();
+
+    command_with_env(&config_file, &cache_home)
+        .args([
+            "config",
+            "context",
+            "add",
+            "sifter://repo/src",
+            "Source files",
+        ])
+        .assert()
+        .success();
+
+    command_with_env(&config_file, &cache_home)
         .args(["index", "update", "--json"])
         .assert()
         .success()
@@ -79,14 +95,18 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"title\":\"Rollout\""))
-        .stdout(predicate::str::contains("\"kind\":\"doc\""));
+        .stdout(predicate::str::contains("\"kind\":\"doc\""))
+        .stdout(predicate::str::contains(
+            "\"context\":\"Workspace docs and code\"",
+        ));
 
     command_with_env(&config_file, &cache_home)
         .args(["search", "retry", "--code", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"kind\":\"code\""))
-        .stdout(predicate::str::contains("lib.rs"));
+        .stdout(predicate::str::contains("lib.rs"))
+        .stdout(predicate::str::contains("\"context\":\"Source files\""));
 
     command_with_env(&config_file, &cache_home)
         .args(["search", "--symbol", "RetryPolicy", "--json"])
