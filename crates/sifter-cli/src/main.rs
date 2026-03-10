@@ -481,7 +481,10 @@ fn execute_show(command: ShowCommand) -> Result<()> {
         None
     };
 
-    if command.references.len() == 1 {
+    if command.references.len() == 1
+        && !command.references[0].contains('*')
+        && !command.references[0].contains('?')
+    {
         let file = index
             .get(&command.references[0], slice)?
             .ok_or_else(|| anyhow!("reference not found: {}", command.references[0]))?;

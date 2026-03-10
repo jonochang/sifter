@@ -98,6 +98,10 @@
   - `--defs` returns only symbol definitions
   - `--refs` returns stored reference-like hits from indexed relations
   - Rust extraction excludes definition-site names from reference results
+- Expanded `show` collection-relative lookup:
+  - wildcard refs now route through multi-item retrieval
+  - `sifter://...` virtual-path globs are supported alongside filesystem globs
+  - collection-relative addressing works for indexed virtual paths without absolute filesystem paths
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`
@@ -106,7 +110,6 @@
 
 ## TODO
 
-- Expand `show` to fully support collection-relative glob behavior.
 - Add the remaining CLI surface from the plan:
   - `ls`
 - Add richer search filters and formatters:

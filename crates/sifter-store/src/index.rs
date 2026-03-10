@@ -458,33 +458,7 @@ impl Store {
         for reference in references {
             let parsed = ParsedReference::parse(reference, slice);
             if parsed.reference.contains('*') || parsed.reference.contains('?') {
-                let mut statement = self.connection.prepare(
-                    "SELECT docid, collection, path, virtual_path, kind, title, language, context, content, line_start, line_end
-                     FROM files WHERE path GLOB ? ORDER BY path",
-                )?;
-                let rows = statement.query_map([parsed.reference.as_str()], |row| {
-                    Ok(IndexedFile {
-                        docid: row.get(0)?,
-                        collection: row.get(1)?,
-                        path: row.get(2)?,
-                        virtual_path: row.get(3)?,
-                        kind: row.get(4)?,
-                        title: row.get(5)?,
-                        language: row.get(6)?,
-                        context: row.get(7)?,
-                        content: row.get(8)?,
-                        line_start: row.get(9)?,
-                        line_end: row.get(10)?,
-                    })
-                })?;
-
-                for row in rows {
-                    let mut file = row?;
-                    if let Some(slice) = parsed.slice {
-                        apply_line_slice(&mut file, slice)?;
-                    }
-                    results.push(file);
-                }
+                self.extend_glob_matches(&mut results, &parsed)?;
             } else if let Some(file) = self.get(reference, slice)? {
                 results.push(file);
             }
@@ -527,6 +501,46 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    fn extend_glob_matches(
+        &self,
+        results: &mut Vec<IndexedFile>,
+        parsed: &ParsedReference,
+    ) -> Result<()> {
+        let (query, order_by) = if parsed.reference.starts_with("sifter://") {
+            ("virtual_path", "virtual_path")
+        } else {
+            ("path", "path")
+        };
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT docid, collection, path, virtual_path, kind, title, language, context, content, line_start, line_end
+             FROM files WHERE {query} GLOB ? ORDER BY {order_by}"
+        ))?;
+        let rows = statement.query_map([parsed.reference.as_str()], |row| {
+            Ok(IndexedFile {
+                docid: row.get(0)?,
+                collection: row.get(1)?,
+                path: row.get(2)?,
+                virtual_path: row.get(3)?,
+                kind: row.get(4)?,
+                title: row.get(5)?,
+                language: row.get(6)?,
+                context: row.get(7)?,
+                content: row.get(8)?,
+                line_start: row.get(9)?,
+                line_end: row.get(10)?,
+            })
+        })?;
+
+        for row in rows {
+            let mut file = row?;
+            if let Some(slice) = parsed.slice {
+                apply_line_slice(&mut file, slice)?;
+            }
+            results.push(file);
+        }
+        Ok(())
     }
 
     pub fn related(&self, reference: &str) -> Result<Vec<RelatedHit>> {

@@ -192,6 +192,20 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .stdout(predicate::str::contains("\"results\""));
 
     command_with_env(&config_file, &cache_home)
+        .args(["show", "sifter://repo/src/*.rs"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            code_path.to_string_lossy().as_ref(),
+        ))
+        .stdout(predicate::str::contains(
+            client_path.to_string_lossy().as_ref(),
+        ))
+        .stdout(predicate::str::contains(
+            notes_path.to_string_lossy().as_ref(),
+        ));
+
+    command_with_env(&config_file, &cache_home)
         .args(["search", "retry", "--files"])
         .assert()
         .success()
