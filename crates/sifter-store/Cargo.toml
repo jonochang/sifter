@@ -17,3 +17,4 @@ serde_json.workspace = true
 sifter-codeintel = { path = "../sifter-codeintel" }
 sifter-codeintel-rust = { path = "../sifter-codeintel-rust" }
 sifter-core = { path = "../sifter-core" }
+tantivy.workspace = true

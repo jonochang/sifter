@@ -28,6 +28,7 @@ rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 serde_yaml = "0.9.34"
+tantivy = "0.22.1"
 tempfile = "3.21.0"
 tree-sitter = "0.25.10"
 tree-sitter-rust = "0.24.0"

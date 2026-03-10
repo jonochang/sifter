@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use blake3::Hasher;
@@ -10,6 +10,12 @@ use serde::Serialize;
 use sifter_codeintel::PluginRegistry;
 use sifter_codeintel_rust::RustPlugin;
 use sifter_core::config::{Config, matching_contexts};
+use tantivy::collector::TopDocs;
+use tantivy::query::{BooleanQuery, Occur, Query as TantivyQuery, QueryParser, TermQuery};
+use tantivy::schema::{
+    Field, IndexRecordOption, STORED, STRING, Schema, TEXT, TantivyDocument, Value,
+};
+use tantivy::{Index, ReloadPolicy, Term, doc};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexedFile {
@@ -100,9 +106,19 @@ struct ChunkRecord {
     line_end: usize,
 }
 
+struct LexicalIndex {
+    index_dir: PathBuf,
+    index: Index,
+    chunk_docid: Field,
+    title: Field,
+    content: Field,
+    kind: Field,
+}
+
 pub struct Store {
     connection: Connection,
     plugins: PluginRegistry,
+    lexical: LexicalIndex,
 }
 
 impl Store {
@@ -119,6 +135,7 @@ impl Store {
         let store = Self {
             connection,
             plugins,
+            lexical: LexicalIndex::open(&lexical_index_dir(path)?)?,
         };
         store.migrate()?;
         Ok(store)
@@ -128,8 +145,14 @@ impl Store {
         let transaction = self.connection.transaction()?;
         transaction.execute("DELETE FROM files", [])?;
         transaction.execute("DELETE FROM chunks", [])?;
-        transaction.execute("DELETE FROM chunks_fts", [])?;
         transaction.execute("DELETE FROM symbols", [])?;
+
+        self.lexical = LexicalIndex::reset(&self.lexical.index_dir)?;
+        let mut writer = self
+            .lexical
+            .index
+            .writer(50_000_000)
+            .context("failed to create Tantivy writer")?;
 
         let mut count = 0usize;
         for (name, collection) in &config.collections {
@@ -203,10 +226,13 @@ impl Store {
                             chunk.line_end,
                         ],
                     )?;
-                    transaction.execute(
-                        "INSERT INTO chunks_fts (chunk_docid, title, content) VALUES (?, ?, ?)",
-                        params![chunk.chunk_docid, chunk.title, chunk.content],
-                    )?;
+
+                    writer.add_document(doc!(
+                        self.lexical.chunk_docid => chunk.chunk_docid,
+                        self.lexical.title => chunk.title,
+                        self.lexical.content => chunk.content,
+                        self.lexical.kind => kind.clone(),
+                    ))?;
                 }
 
                 if let Some(plugin) = plugin {
@@ -232,6 +258,7 @@ impl Store {
         }
 
         transaction.commit()?;
+        writer.commit().context("failed to commit Tantivy index")?;
         Ok(count)
     }
 
@@ -263,44 +290,84 @@ impl Store {
     }
 
     pub fn search(&self, query: &str, options: &SearchOptions) -> Result<Vec<SearchHit>> {
-        let kind_filter = match options.kind {
-            Some(SearchKind::Doc) => Some("doc"),
-            Some(SearchKind::Code) => Some("code"),
-            None => None,
+        let reader = self
+            .lexical
+            .index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::OnCommitWithDelay)
+            .try_into()
+            .context("failed to open Tantivy reader")?;
+        let searcher = reader.searcher();
+
+        let parser = QueryParser::for_index(
+            &self.lexical.index,
+            vec![self.lexical.title, self.lexical.content],
+        );
+        let parsed = parser
+            .parse_query(query)
+            .with_context(|| format!("failed to parse query '{query}'"))?;
+
+        let boxed_query: Box<dyn TantivyQuery> = if let Some(kind) = options.kind {
+            let kind_term = match kind {
+                SearchKind::Doc => "doc",
+                SearchKind::Code => "code",
+            };
+            Box::new(BooleanQuery::new(vec![
+                (Occur::Must, parsed),
+                (
+                    Occur::Must,
+                    Box::new(TermQuery::new(
+                        Term::from_field_text(self.lexical.kind, kind_term),
+                        IndexRecordOption::Basic,
+                    )),
+                ),
+            ]))
+        } else {
+            parsed
         };
 
+        let top_docs = searcher.search(&boxed_query, &TopDocs::with_limit(20))?;
+        let mut hits = Vec::new();
         let mut statement = self.connection.prepare(
-            "SELECT files.docid, files.path, files.collection, files.kind, chunks.title, files.context, chunks.line_start, chunks.line_end, files.language, chunks.content,
-                    snippet(chunks_fts, 2, '[', ']', ' … ', 12), bm25(chunks_fts)
-             FROM chunks_fts
-             JOIN chunks ON chunks.chunk_docid = chunks_fts.chunk_docid
+            "SELECT files.docid, files.path, files.collection, files.kind, chunks.title, files.context, chunks.line_start, chunks.line_end, files.language, chunks.content
+             FROM chunks
              JOIN files ON files.docid = chunks.docid
-             WHERE chunks_fts MATCH ? AND (? IS NULL OR files.kind = ?)
-             ORDER BY bm25(chunks_fts)
-             LIMIT 20",
+             WHERE chunks.chunk_docid = ? LIMIT 1",
         )?;
 
-        let rows = statement.query_map(params![query, kind_filter, kind_filter], |row| {
-            Ok(SearchHit {
-                docid: row.get(0)?,
-                file: row.get(1)?,
-                collection: row.get(2)?,
-                kind: row.get(3)?,
-                title: row.get(4)?,
-                context: row.get(5)?,
-                line_start: row.get(6)?,
-                line_end: row.get(7)?,
-                language: row.get(8)?,
-                full_content: if options.include_full_content {
-                    Some(row.get(9)?)
-                } else {
-                    None
-                },
-                snippet: row.get(10)?,
-                score: -row.get::<_, f64>(11)?,
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        for (score, address) in top_docs {
+            let document: TantivyDocument = searcher.doc(address)?;
+            let Some(chunk_docid) = document
+                .get_first(self.lexical.chunk_docid)
+                .and_then(|value| value.as_str())
+            else {
+                continue;
+            };
+
+            let chunk_hit = statement.query_row([chunk_docid], |row| {
+                Ok(SearchHit {
+                    docid: row.get(0)?,
+                    file: row.get(1)?,
+                    collection: row.get(2)?,
+                    kind: row.get(3)?,
+                    title: row.get(4)?,
+                    context: row.get(5)?,
+                    line_start: row.get(6)?,
+                    line_end: row.get(7)?,
+                    language: row.get(8)?,
+                    full_content: if options.include_full_content {
+                        Some(row.get(9)?)
+                    } else {
+                        None
+                    },
+                    snippet: generate_snippet(&row.get::<_, String>(9)?, query),
+                    score: score.into(),
+                })
+            })?;
+            hits.push(chunk_hit);
+        }
+
+        Ok(hits)
     }
 
     pub fn get(&self, reference: &str, slice: Option<LineSlice>) -> Result<Option<IndexedFile>> {
@@ -499,11 +566,6 @@ impl Store {
                 line_start INTEGER NOT NULL,
                 line_end INTEGER NOT NULL,
                 scope TEXT
-            );
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-                chunk_docid UNINDEXED,
-                title,
-                content
             );",
         )?;
         Ok(())
@@ -540,6 +602,49 @@ impl Store {
     }
 }
 
+impl LexicalIndex {
+    fn open(index_dir: &Path) -> Result<Self> {
+        fs::create_dir_all(index_dir)
+            .with_context(|| format!("failed to create {}", index_dir.display()))?;
+        let schema = lexical_schema();
+        let index = if index_dir.join("meta.json").exists() {
+            Index::open_in_dir(index_dir).context("failed to open Tantivy index")?
+        } else {
+            Index::create_in_dir(index_dir, schema.clone())
+                .context("failed to create Tantivy index")?
+        };
+        Ok(Self::from_index(index_dir.to_path_buf(), index, schema))
+    }
+
+    fn reset(index_dir: &Path) -> Result<Self> {
+        if index_dir.exists() {
+            fs::remove_dir_all(index_dir)
+                .with_context(|| format!("failed to clear {}", index_dir.display()))?;
+        }
+        fs::create_dir_all(index_dir)
+            .with_context(|| format!("failed to create {}", index_dir.display()))?;
+        let schema = lexical_schema();
+        let index = Index::create_in_dir(index_dir, schema.clone())
+            .context("failed to create Tantivy index")?;
+        Ok(Self::from_index(index_dir.to_path_buf(), index, schema))
+    }
+
+    fn from_index(index_dir: PathBuf, index: Index, schema: Schema) -> Self {
+        let chunk_docid = schema.get_field("chunk_docid").expect("chunk_docid field");
+        let title = schema.get_field("title").expect("title field");
+        let content = schema.get_field("content").expect("content field");
+        let kind = schema.get_field("kind").expect("kind field");
+        Self {
+            index_dir,
+            index,
+            chunk_docid,
+            title,
+            content,
+            kind,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ParsedReference {
     reference: String,
@@ -559,6 +664,26 @@ impl ParsedReference {
 
         Self { reference, slice }
     }
+}
+
+fn lexical_index_dir(db_path: &Path) -> Result<PathBuf> {
+    let stem = db_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| anyhow!("invalid database path for lexical index"))?;
+    let parent = db_path
+        .parent()
+        .ok_or_else(|| anyhow!("database path has no parent"))?;
+    Ok(parent.join(format!("{stem}.tantivy")))
+}
+
+fn lexical_schema() -> Schema {
+    let mut builder = Schema::builder();
+    builder.add_text_field("chunk_docid", STRING | STORED);
+    builder.add_text_field("title", TEXT | STORED);
+    builder.add_text_field("content", TEXT);
+    builder.add_text_field("kind", STRING | STORED);
+    builder.build()
 }
 
 fn compile_glob(pattern: &str) -> Result<globset::GlobSet> {
@@ -752,6 +877,18 @@ fn chunk_docid_for(collection: &str, relative_path: &Path, index: usize, content
     hasher.update(content.as_bytes());
     let digest = hasher.finalize().to_hex().to_string();
     digest[..16].to_string()
+}
+
+fn generate_snippet(content: &str, query: &str) -> String {
+    let lowered_content = content.to_lowercase();
+    let lowered_query = query.to_lowercase();
+    if let Some(index) = lowered_content.find(&lowered_query) {
+        let start = index.saturating_sub(40);
+        let end = (index + query.len() + 80).min(content.len());
+        let snippet = content[start..end].trim();
+        return snippet.replacen(query, &format!("[{query}]"), 1);
+    }
+    content.lines().take(4).collect::<Vec<_>>().join("\n")
 }
 
 #[cfg(test)]

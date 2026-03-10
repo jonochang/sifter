@@ -76,6 +76,7 @@
   - `show` supports filesystem paths, `sifter://` virtual paths, and `#docid`
   - `show` supports `:line`, `-l/--max-lines`, and `--line-numbers`
   - `search` supports `--docs`, `--code`, `--files`, `--csv`, `--md`, and `--xml`
+- Migrated lexical search from SQLite FTS to Tantivy while keeping SQLite as the catalog/content store.
 - Expanded config collection management with:
   - `sifter config collection rename`
   - `sifter config collection remove`
@@ -90,7 +91,6 @@
 
 ## TODO
 
-- Replace the current SQLite FTS-only lexical path with the planned Tantivy + SQLite split, or explicitly revise the architecture docs if SQLite FTS remains the chosen implementation.
 - Expand `show` to fully support docids, virtual paths, line slicing, and collection-relative glob behavior.
 - Add the remaining CLI surface from the plan:
   - `ls`
