@@ -43,20 +43,20 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     .expect("write related code");
 
     command_with_env(&config_file, &cache_home)
-        .args(["collection", "add"])
+        .args(["config", "collection", "add"])
         .arg(&repo)
         .args(["--name", "repo"])
         .assert()
         .success();
 
     command_with_env(&config_file, &cache_home)
-        .args(["update", "--json"])
+        .args(["index", "update", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"indexed_files\":3"));
 
     command_with_env(&config_file, &cache_home)
-        .args(["status", "--json"])
+        .args(["index", "status", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"vector_runtime\":\"pending\""));
@@ -68,14 +68,14 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .stdout(predicate::str::contains("Retry Budget"));
 
     command_with_env(&config_file, &cache_home)
-        .args(["symbol", "RetryPolicy", "--json"])
+        .args(["search", "--symbol", "RetryPolicy", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"name\":\"RetryPolicy\""))
         .stdout(predicate::str::contains("\"kind\":\"struct\""));
 
     command_with_env(&config_file, &cache_home)
-        .args(["related"])
+        .args(["search", "--related"])
         .arg(&code_path)
         .args(["--json"])
         .assert()
@@ -85,7 +85,7 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         ));
 
     let get_output = command_with_env(&config_file, &cache_home)
-        .args(["get"])
+        .args(["show"])
         .arg(&doc_path)
         .assert()
         .success()
@@ -96,28 +96,26 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     assert_eq!(get_json["file"], doc_path.to_string_lossy().as_ref());
 
     command_with_env(&config_file, &cache_home)
-        .args(["multi-get"])
-        .arg(format!(
-            "{},{},{}",
-            doc_path.display(),
-            code_path.display(),
-            client_path.display()
-        ))
+        .args(["show"])
+        .arg(&doc_path)
+        .arg(&code_path)
+        .arg(&client_path)
         .assert()
         .success()
         .stdout(predicate::str::contains("\"results\""));
 }
 
 #[test]
-fn vector_commands_return_pending_runtime_error() {
+fn semantic_and_hybrid_search_return_pending_runtime_error() {
     let temp = tempdir().expect("create tempdir");
     let config_file = temp.path().join("config.yml");
     let cache_home = temp.path().join("cache");
 
-    for command in ["embed", "vsearch", "query"] {
-        command_with_env(&config_file, &cache_home)
-            .arg(command)
-            .arg("retry budget")
+    for flag in ["--semantic", "--hybrid"] {
+        let mut cmd = command_with_env(&config_file, &cache_home);
+        cmd.arg("search");
+        cmd.arg(flag);
+        cmd.arg("retry budget")
             .assert()
             .code(2)
             .stdout(predicate::str::contains(

@@ -4,25 +4,23 @@ A local-first search engine for code and documentation, combining BM25, vector s
 ## Current CLI
 
 The current MVP supports:
-- `sifter collection add`
-- `sifter collection list`
-- `sifter context add|list|check|rm`
-- `sifter update`
-- `sifter status`
-- `sifter search`
-- `sifter symbol`
-- `sifter related`
-- `sifter get`
-- `sifter multi-get`
-- `sifter embed|vsearch|query` as explicit deferred-runtime placeholders
+- `sifter config collection add|list`
+- `sifter config context add|list|check|rm`
+- `sifter index update|status`
+- `sifter search <query>`
+- `sifter search --symbol <name>`
+- `sifter search --related <path>`
+- `sifter search --semantic <query>` and `sifter search --hybrid <query>` as deferred-runtime placeholders
+- `sifter show <ref...>`
 
 Example:
 
 ```bash
-sifter collection add . --name repo
-sifter update --json
+sifter config collection add . --name repo
+sifter index update --json
 sifter search "retry budget" --json
-sifter symbol RetryPolicy --json
+sifter search --symbol RetryPolicy --json
+sifter show README.md
 ```
 
 ## Development

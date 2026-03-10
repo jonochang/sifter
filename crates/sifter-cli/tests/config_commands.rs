@@ -18,7 +18,7 @@ fn collection_add_persists_yaml_config() {
     fs::create_dir_all(&collection_root).expect("create collection root");
 
     command_with_config(&config_file)
-        .args(["collection", "add"])
+        .args(["config", "collection", "add"])
         .arg(&collection_root)
         .args(["--name", "repo"])
         .assert()
@@ -39,14 +39,14 @@ fn collection_list_emits_known_collections_as_json() {
     fs::create_dir_all(&collection_root).expect("create collection root");
 
     command_with_config(&config_file)
-        .args(["collection", "add"])
+        .args(["config", "collection", "add"])
         .arg(&collection_root)
         .args(["--name", "repo"])
         .assert()
         .success();
 
     command_with_config(&config_file)
-        .args(["collection", "list", "--json"])
+        .args(["config", "collection", "list", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"name\":\"repo\""));
@@ -58,29 +58,41 @@ fn context_commands_add_list_check_and_remove_contexts() {
     let config_file = temp.path().join("config.yml");
 
     command_with_config(&config_file)
-        .args(["context", "add", "sifter://repo/src", "Source files"])
+        .args([
+            "config",
+            "context",
+            "add",
+            "sifter://repo/src",
+            "Source files",
+        ])
         .assert()
         .success();
 
     command_with_config(&config_file)
-        .args(["context", "list", "--json"])
+        .args(["config", "context", "list", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Source files"));
 
     command_with_config(&config_file)
-        .args(["context", "check", "sifter://repo/src/lib.rs", "--json"])
+        .args([
+            "config",
+            "context",
+            "check",
+            "sifter://repo/src/lib.rs",
+            "--json",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"scope\":\"sifter://repo/src\""));
 
     command_with_config(&config_file)
-        .args(["context", "rm", "sifter://repo/src"])
+        .args(["config", "context", "rm", "sifter://repo/src"])
         .assert()
         .success();
 
     command_with_config(&config_file)
-        .args(["context", "list", "--json"])
+        .args(["config", "context", "list", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"contexts\":[]"));

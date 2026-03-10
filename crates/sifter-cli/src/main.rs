@@ -2,7 +2,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 use serde_json::json;
 use sifter_core::config::{ConfigStore, cache_file_path, matching_contexts};
 use sifter_store::index::Store;
@@ -17,18 +17,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    Config(ConfigCommand),
+    Index(IndexCommand),
+    Search(SearchCommand),
+    Show(ShowCommand),
+}
+
+#[derive(Debug, Args)]
+struct ConfigCommand {
+    #[command(subcommand)]
+    command: ConfigSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigSubcommand {
     Collection(CollectionCommand),
     Context(ContextCommand),
-    Update(OutputArgs),
-    Status(OutputArgs),
-    Search(SearchCommand),
-    Symbol(SearchCommand),
-    Related(RelatedCommand),
-    Get(GetCommand),
-    MultiGet(MultiGetCommand),
-    Embed(VectorCommand),
-    Vsearch(VectorCommand),
-    Query(VectorCommand),
 }
 
 #[derive(Debug, Args)]
@@ -85,32 +89,40 @@ struct ContextRemove {
 }
 
 #[derive(Debug, Args)]
+struct IndexCommand {
+    #[command(subcommand)]
+    command: IndexSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum IndexSubcommand {
+    Update(OutputArgs),
+    Status(OutputArgs),
+}
+
+#[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("search_mode")
+        .args(["semantic", "hybrid", "symbol", "related"])
+        .multiple(false)
+))]
 struct SearchCommand {
-    query: String,
-    #[command(flatten)]
-    output: OutputArgs,
-}
-
-#[derive(Debug, Args)]
-struct GetCommand {
-    reference: String,
-}
-
-#[derive(Debug, Args)]
-struct RelatedCommand {
-    reference: String,
-    #[command(flatten)]
-    output: OutputArgs,
-}
-
-#[derive(Debug, Args)]
-struct MultiGetCommand {
-    references: String,
-}
-
-#[derive(Debug, Args)]
-struct VectorCommand {
     query: Option<String>,
+    #[arg(long)]
+    semantic: bool,
+    #[arg(long)]
+    hybrid: bool,
+    #[arg(long)]
+    symbol: Option<String>,
+    #[arg(long)]
+    related: Option<String>,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Debug, Args)]
+struct ShowCommand {
+    references: Vec<String>,
 }
 
 #[derive(Debug, Args, Clone, Default)]
@@ -135,11 +147,21 @@ fn run() -> Result<()> {
 }
 
 fn execute(command: Command) -> Result<()> {
-    let store = ConfigStore::new("default")?;
+    let config_store = ConfigStore::new("default")?;
     match command {
-        Command::Collection(command) => match command.command {
+        Command::Config(command) => execute_config(command, &config_store)?,
+        Command::Index(command) => execute_index(command, &config_store)?,
+        Command::Search(command) => execute_search(command)?,
+        Command::Show(command) => execute_show(command)?,
+    }
+    Ok(())
+}
+
+fn execute_config(command: ConfigCommand, config_store: &ConfigStore) -> Result<()> {
+    match command.command {
+        ConfigSubcommand::Collection(command) => match command.command {
             CollectionSubcommand::Add(args) => {
-                let config = store.add_collection(&args.name, args.path, args.pattern)?;
+                let config = config_store.add_collection(&args.name, args.path, args.pattern)?;
                 print_json(&json!({
                     "collection": {
                         "name": args.name,
@@ -152,7 +174,7 @@ fn execute(command: Command) -> Result<()> {
                 }));
             }
             CollectionSubcommand::List(output) => {
-                let config = store.load()?;
+                let config = config_store.load()?;
                 let collections = config
                     .collections
                     .iter()
@@ -165,17 +187,12 @@ fn execute(command: Command) -> Result<()> {
                         })
                     })
                     .collect::<Vec<_>>();
-                print_output(
-                    output.json,
-                    &json!({
-                        "collections": collections,
-                    }),
-                )?;
+                print_output(output.json, &json!({ "collections": collections }))?;
             }
         },
-        Command::Context(command) => match command.command {
+        ConfigSubcommand::Context(command) => match command.command {
             ContextSubcommand::Add(args) => {
-                store.add_context(&args.scope, &args.value)?;
+                config_store.add_context(&args.scope, &args.value)?;
                 print_json(&json!({
                     "context": {
                         "scope": args.scope,
@@ -184,7 +201,7 @@ fn execute(command: Command) -> Result<()> {
                 }));
             }
             ContextSubcommand::List(output) => {
-                let config = store.load()?;
+                let config = config_store.load()?;
                 let contexts = config
                     .contexts
                     .iter()
@@ -198,7 +215,7 @@ fn execute(command: Command) -> Result<()> {
                 print_output(output.json, &json!({ "contexts": contexts }))?;
             }
             ContextSubcommand::Check(args) => {
-                let config = store.load()?;
+                let config = config_store.load()?;
                 let matches = matching_contexts(&config, &args.scope)
                     .into_iter()
                     .map(|item| {
@@ -211,78 +228,97 @@ fn execute(command: Command) -> Result<()> {
                 print_output(args.output.json, &json!({ "matches": matches }))?;
             }
             ContextSubcommand::Rm(args) => {
-                store.remove_context(&args.scope)?;
+                config_store.remove_context(&args.scope)?;
                 print_json(&json!({
                     "removed": args.scope,
                 }));
             }
         },
-        Command::Update(output) => {
-            let config = store.load()?;
+    }
+    Ok(())
+}
+
+fn execute_index(command: IndexCommand, config_store: &ConfigStore) -> Result<()> {
+    match command.command {
+        IndexSubcommand::Update(output) => {
+            let config = config_store.load()?;
             let db_path = cache_file_path("default")?;
             let mut index = Store::open(&db_path)?;
             let indexed_files = index.rebuild(&config)?;
             print_output(output.json, &json!({ "indexed_files": indexed_files }))?;
         }
-        Command::Status(output) => {
-            let config = store.load()?;
+        IndexSubcommand::Status(output) => {
+            let config = config_store.load()?;
             let db_path = cache_file_path("default")?;
             let index = Store::open(&db_path)?;
             print_output(output.json, &serde_json::to_value(index.status(&config)?)?)?;
         }
-        Command::Search(args) => {
-            let db_path = cache_file_path("default")?;
-            let index = Store::open(&db_path)?;
-            let results = index.search(&args.query)?;
-            print_output(
-                args.output.json,
-                &json!({
-                    "results": results,
-                }),
-            )?;
-        }
-        Command::Symbol(args) => {
-            let db_path = cache_file_path("default")?;
-            let index = Store::open(&db_path)?;
-            let results = index.symbol(&args.query)?;
-            print_output(args.output.json, &json!({ "results": results }))?;
-        }
-        Command::Related(args) => {
-            let db_path = cache_file_path("default")?;
-            let index = Store::open(&db_path)?;
-            let results = index.related(&args.reference)?;
-            print_output(args.output.json, &json!({ "results": results }))?;
-        }
-        Command::Get(args) => {
-            let db_path = cache_file_path("default")?;
-            let index = Store::open(&db_path)?;
-            let file = index
-                .get(&args.reference)?
-                .ok_or_else(|| anyhow!("reference not found: {}", args.reference))?;
-            print_json(&json!({
-                "docid": file.docid,
-                "file": file.path,
-                "virtual_path": file.virtual_path,
-                "kind": file.kind,
-                "title": file.title,
-                "language": file.language,
-                "content": file.content,
-                "line_start": file.line_start,
-                "line_end": file.line_end,
-            }));
-        }
-        Command::MultiGet(args) => {
-            let db_path = cache_file_path("default")?;
-            let index = Store::open(&db_path)?;
-            let results = index.multi_get(&args.references)?;
-            print_json(&json!({
-                "results": results,
-            }));
-        }
-        Command::Embed(args) => return vector_pending("embed", args.query.as_deref()),
-        Command::Vsearch(args) => return vector_pending("vsearch", args.query.as_deref()),
-        Command::Query(args) => return vector_pending("query", args.query.as_deref()),
     }
+    Ok(())
+}
+
+fn execute_search(command: SearchCommand) -> Result<()> {
+    let db_path = cache_file_path("default")?;
+    let index = Store::open(&db_path)?;
+
+    if let Some(symbol) = &command.symbol {
+        let results = index.symbol(symbol)?;
+        return print_output(command.output.json, &json!({ "results": results }));
+    }
+
+    if let Some(reference) = &command.related {
+        let results = index.related(reference)?;
+        return print_output(command.output.json, &json!({ "results": results }));
+    }
+
+    let query = command
+        .query
+        .as_deref()
+        .ok_or_else(|| anyhow!("search requires a query"))?;
+
+    if command.semantic {
+        return vector_pending("search --semantic", Some(query));
+    }
+
+    if command.hybrid {
+        return vector_pending("search --hybrid", Some(query));
+    }
+
+    let results = index.search(query)?;
+    print_output(command.output.json, &json!({ "results": results }))
+}
+
+fn execute_show(command: ShowCommand) -> Result<()> {
+    if command.references.is_empty() {
+        return Err(anyhow!("show requires at least one reference"));
+    }
+
+    let db_path = cache_file_path("default")?;
+    let index = Store::open(&db_path)?;
+
+    if command.references.len() == 1 {
+        let file = index
+            .get(&command.references[0])?
+            .ok_or_else(|| anyhow!("reference not found: {}", command.references[0]))?;
+        print_json(&json!({
+            "docid": file.docid,
+            "file": file.path,
+            "virtual_path": file.virtual_path,
+            "kind": file.kind,
+            "title": file.title,
+            "language": file.language,
+            "content": file.content,
+            "line_start": file.line_start,
+            "line_end": file.line_end,
+        }));
+    } else {
+        let references = command.references.join(",");
+        let results = index.multi_get(&references)?;
+        print_json(&json!({
+            "results": results,
+        }));
+    }
+
     Ok(())
 }
 

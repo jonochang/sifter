@@ -62,6 +62,14 @@
   - deferred vector commands
   - plugin registry selection
   - Rust symbol extraction
+- Reduced the top-level CLI to:
+  - `sifter config`
+  - `sifter index`
+  - `sifter search`
+  - `sifter show`
+  - folded `symbol` and `related` into `search`
+  - folded `get` and `multi-get` into `show`
+  - dropped the old top-level `embed`/`vsearch`/`query` commands in favor of `search --semantic` and `search --hybrid`
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`
@@ -72,7 +80,7 @@
 
 - Replace the current SQLite FTS-only lexical path with the planned Tantivy + SQLite split, or explicitly revise the architecture docs if SQLite FTS remains the chosen implementation.
 - Implement heading-aware markdown chunking instead of whole-file indexing.
-- Expand `get` and `multi-get` to fully support docids, virtual paths, line slicing, and collection-relative glob behavior.
+- Expand `show` to fully support docids, virtual paths, line slicing, and collection-relative glob behavior.
 - Add the remaining CLI surface from the plan:
   - `ls`
   - collection remove/rename/show/include/exclude/update-cmd
