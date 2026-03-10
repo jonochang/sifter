@@ -31,6 +31,22 @@ impl SymbolKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationKind {
+    Import,
+    Mention,
+}
+
+impl RelationKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Import => "import",
+            Self::Mention => "mention",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodeSymbol {
     pub name: String,
     pub kind: SymbolKind,
@@ -39,10 +55,19 @@ pub struct CodeSymbol {
     pub scope: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeRelation {
+    pub name: String,
+    pub kind: RelationKind,
+    pub line_start: usize,
+    pub line_end: usize,
+}
+
 pub trait LanguagePlugin {
     fn language_name(&self) -> &'static str;
     fn matches_path(&self, path: &Path) -> bool;
     fn extract_symbols(&self, source: &str, path: &Path) -> Vec<CodeSymbol>;
+    fn extract_relations(&self, source: &str, path: &Path) -> Vec<CodeRelation>;
 }
 
 #[derive(Default)]
@@ -95,6 +120,15 @@ mod tests {
                 line_start: 1,
                 line_end: 1,
                 scope: None,
+            }]
+        }
+
+        fn extract_relations(&self, _source: &str, _path: &Path) -> Vec<CodeRelation> {
+            vec![CodeRelation {
+                name: "Dependency".to_string(),
+                kind: RelationKind::Import,
+                line_start: 1,
+                line_end: 1,
             }]
         }
     }

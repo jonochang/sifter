@@ -83,6 +83,11 @@
   - `sifter config collection show`
   - `sifter config collection include|exclude`
   - `sifter config collection update-cmd`
+- Replaced `search --related` content scanning with stored code relations:
+  - normalized relation records in the language-plugin interface
+  - Rust extraction for imports and type mentions
+  - SQLite-backed relation storage and weighted related-file ranking
+  - regression coverage proving prose/comment mentions do not count as related
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`
@@ -91,16 +96,12 @@
 
 ## TODO
 
-- Expand `show` to fully support docids, virtual paths, line slicing, and collection-relative glob behavior.
+- Expand `show` to fully support collection-relative glob behavior.
 - Add the remaining CLI surface from the plan:
   - `ls`
-  - collection remove/rename/show/include/exclude/update-cmd
   - context/global-context refinements from QMD compatibility
 - Add richer search filters and formatters:
-  - `--xml`
-  - `--line-numbers`
 - Extend `symbol` with `--defs` and `--refs`.
-- Make `related` use stored symbol/reference/import relations instead of the current content-overlap heuristic.
 - Add more languages by implementing additional `LanguagePlugin` crates and registering them in the store/indexer.
 - Add store and formatter unit tests directly in `sifter-store`.
 - Add acceptance fixtures proving `sifter` can index and search its own repo.

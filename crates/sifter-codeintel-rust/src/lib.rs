@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sifter_codeintel::{CodeSymbol, LanguagePlugin, SymbolKind};
+use sifter_codeintel::{CodeRelation, CodeSymbol, LanguagePlugin, RelationKind, SymbolKind};
 use tree_sitter::Parser;
 
 pub struct RustPlugin;
@@ -15,11 +15,7 @@ impl LanguagePlugin for RustPlugin {
     }
 
     fn extract_symbols(&self, source: &str, _path: &Path) -> Vec<CodeSymbol> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_rust::LANGUAGE.into())
-            .expect("load Rust grammar");
-        let tree = match parser.parse(source, None) {
+        let tree = match parse_tree(source) {
             Some(tree) => tree,
             None => return Vec::new(),
         };
@@ -30,6 +26,25 @@ impl LanguagePlugin for RustPlugin {
             .filter_map(|node| extract_symbol(node, source))
             .collect()
     }
+
+    fn extract_relations(&self, source: &str, _path: &Path) -> Vec<CodeRelation> {
+        let tree = match parse_tree(source) {
+            Some(tree) => tree,
+            None => return Vec::new(),
+        };
+
+        let mut relations = Vec::new();
+        collect_relations(tree.root_node(), source, &mut relations);
+        relations
+    }
+}
+
+fn parse_tree(source: &str) -> Option<tree_sitter::Tree> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .expect("load Rust grammar");
+    parser.parse(source, None)
 }
 
 fn extract_symbol(node: tree_sitter::Node<'_>, source: &str) -> Option<CodeSymbol> {
@@ -76,6 +91,57 @@ fn impl_name(node: tree_sitter::Node<'_>, source: &str) -> Option<String> {
         .and_then(|child| child.utf8_text(source.as_bytes()).ok().map(str::to_string))
 }
 
+fn collect_relations(node: tree_sitter::Node<'_>, source: &str, relations: &mut Vec<CodeRelation>) {
+    if node.kind() == "use_declaration" {
+        for name in import_names(node, source) {
+            relations.push(CodeRelation {
+                name,
+                kind: RelationKind::Import,
+                line_start: node.start_position().row + 1,
+                line_end: node.end_position().row + 1,
+            });
+        }
+    } else if node.kind() == "type_identifier"
+        && let Ok(name) = node.utf8_text(source.as_bytes())
+        && !name.is_empty()
+    {
+        relations.push(CodeRelation {
+            name: name.to_string(),
+            kind: RelationKind::Mention,
+            line_start: node.start_position().row + 1,
+            line_end: node.end_position().row + 1,
+        });
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_relations(child, source, relations);
+    }
+}
+
+fn import_names(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    collect_import_names(node, source, &mut names);
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn collect_import_names(node: tree_sitter::Node<'_>, source: &str, names: &mut Vec<String>) {
+    if matches!(node.kind(), "identifier" | "type_identifier")
+        && let Ok(name) = node.utf8_text(source.as_bytes())
+        && !matches!(name, "crate" | "self" | "super")
+        && !name.is_empty()
+    {
+        names.push(name.to_string());
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_import_names(child, source, names);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,6 +184,39 @@ pub fn retry_budget() -> usize { 3 }
                 ("Budget".to_string(), "type_alias".to_string(), 7),
                 ("nested".to_string(), "module".to_string(), 8),
                 ("retry_budget".to_string(), "function".to_string(), 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_imports_and_type_mentions_without_comment_noise() {
+        let source = r#"
+use crate::RetryPolicy;
+
+// RetryPolicy is only a comment mention here.
+pub fn build(policy: RetryPolicy) -> RetryPolicy { policy }
+pub fn note() -> &'static str { "RetryPolicy" }
+"#;
+
+        let plugin = RustPlugin;
+        let relations = plugin.extract_relations(source, Path::new("src/client.rs"));
+        let summary = relations
+            .into_iter()
+            .map(|relation| {
+                (
+                    relation.name,
+                    relation.kind.as_str().to_string(),
+                    relation.line_start,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            summary,
+            vec![
+                ("RetryPolicy".to_string(), "import".to_string(), 2),
+                ("RetryPolicy".to_string(), "mention".to_string(), 5),
+                ("RetryPolicy".to_string(), "mention".to_string(), 5),
             ]
         );
     }

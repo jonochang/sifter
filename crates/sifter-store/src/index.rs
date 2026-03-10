@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -121,6 +122,14 @@ pub struct Store {
     lexical: LexicalIndex,
 }
 
+#[derive(Debug)]
+struct RelatedAccumulator {
+    file: String,
+    collection: String,
+    score: usize,
+    shared_symbols: BTreeSet<String>,
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -146,6 +155,7 @@ impl Store {
         transaction.execute("DELETE FROM files", [])?;
         transaction.execute("DELETE FROM chunks", [])?;
         transaction.execute("DELETE FROM symbols", [])?;
+        transaction.execute("DELETE FROM relations", [])?;
 
         self.lexical = LexicalIndex::reset(&self.lexical.index_dir)?;
         let mut writer = self
@@ -248,6 +258,21 @@ impl Store {
                                 symbol.line_start,
                                 symbol.line_end,
                                 symbol.scope,
+                            ],
+                        )?;
+                    }
+
+                    for relation in plugin.extract_relations(&content, &absolute_path) {
+                        transaction.execute(
+                            "INSERT INTO relations (
+                                docid, name, kind, line_start, line_end
+                            ) VALUES (?, ?, ?, ?, ?)",
+                            params![
+                                docid,
+                                relation.name,
+                                relation.kind.as_str(),
+                                relation.line_start,
+                                relation.line_end,
                             ],
                         )?;
                     }
@@ -489,14 +514,20 @@ impl Store {
             Some(target) => target,
             None => return Ok(Vec::new()),
         };
-        let target_symbols = self.symbols_for_docid(&target.docid)?;
+        let target_symbols = self
+            .symbols_for_docid(&target.docid)?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         if target_symbols.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut results = Vec::new();
         let mut statement = self.connection.prepare(
-            "SELECT docid, path, collection, content FROM files WHERE docid != ? ORDER BY path",
+            "SELECT relations.docid, files.path, files.collection, relations.name, relations.kind
+             FROM relations
+             JOIN files ON files.docid = relations.docid
+             WHERE files.docid != ?
+             ORDER BY files.path",
         )?;
         let rows = statement.query_map([target.docid.as_str()], |row| {
             Ok((
@@ -504,28 +535,36 @@ impl Store {
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
             ))
         })?;
 
+        let mut related = HashMap::<String, RelatedAccumulator>::new();
         for row in rows {
-            let (docid, path, collection, content) = row?;
-            let shared_symbols = target_symbols
-                .iter()
-                .filter(|name| content.contains(name.as_str()) || self.doc_has_symbol(&docid, name))
-                .cloned()
-                .collect::<Vec<_>>();
-            if shared_symbols.is_empty() {
+            let (docid, path, collection, name, kind) = row?;
+            if !target_symbols.contains(&name) {
                 continue;
             }
 
-            results.push(RelatedHit {
+            let entry = related.entry(docid).or_insert_with(|| RelatedAccumulator {
                 file: path,
                 collection,
-                score: shared_symbols.len(),
-                shared_symbols,
+                score: 0,
+                shared_symbols: BTreeSet::new(),
             });
+            entry.score += relation_weight(&kind);
+            entry.shared_symbols.insert(name);
         }
 
+        let mut results = related
+            .into_values()
+            .map(|item| RelatedHit {
+                file: item.file,
+                collection: item.collection,
+                score: item.score,
+                shared_symbols: item.shared_symbols.into_iter().collect(),
+            })
+            .collect::<Vec<_>>();
         results.sort_by(|left, right| {
             right
                 .score
@@ -566,6 +605,14 @@ impl Store {
                 line_start INTEGER NOT NULL,
                 line_end INTEGER NOT NULL,
                 scope TEXT
+            );
+            CREATE TABLE IF NOT EXISTS relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                docid TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                line_start INTEGER NOT NULL,
+                line_end INTEGER NOT NULL
             );",
         )?;
         Ok(())
@@ -577,17 +624,6 @@ impl Store {
             .prepare("SELECT name FROM symbols WHERE docid = ? ORDER BY name")?;
         let rows = statement.query_map([docid], |row| row.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
-    fn doc_has_symbol(&self, docid: &str, name: &str) -> bool {
-        self.connection
-            .query_row(
-                "SELECT COUNT(*) FROM symbols WHERE docid = ? AND name = ?",
-                params![docid, name],
-                |row| row.get::<_, usize>(0),
-            )
-            .map(|count| count > 0)
-            .unwrap_or(false)
     }
 
     pub fn docid_for_path(&self, path: &str) -> Result<Option<String>> {
@@ -684,6 +720,14 @@ fn lexical_schema() -> Schema {
     builder.add_text_field("content", TEXT);
     builder.add_text_field("kind", STRING | STORED);
     builder.build()
+}
+
+fn relation_weight(kind: &str) -> usize {
+    match kind {
+        "import" => 3,
+        "mention" => 1,
+        _ => 1,
+    }
 }
 
 fn compile_glob(pattern: &str) -> Result<globset::GlobSet> {

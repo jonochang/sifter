@@ -26,6 +26,7 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     let doc_path = docs.join("brief.md");
     let code_path = src.join("lib.rs");
     let client_path = src.join("client.rs");
+    let notes_path = src.join("notes.rs");
     fs::write(
         &doc_path,
         "# Retry Budget\n\nSifter should index retry budget design notes.\n\n## Rollout\n\nrollout checklist line 1\nrollout checklist line 2\n",
@@ -41,6 +42,12 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         "use crate::RetryPolicy;\n\npub fn build(policy: RetryPolicy) -> RetryPolicy { policy }\n",
     )
     .expect("write related code");
+    fs::write(
+        &notes_path,
+        "// RetryPolicy is mentioned here, but this file does not depend on it.\n\
+         pub fn note() -> &'static str { \"RetryPolicy\" }\n",
+    )
+    .expect("write unrelated note");
 
     command_with_env(&config_file, &cache_home)
         .args(["config", "collection", "add"])
@@ -53,7 +60,7 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .args(["index", "update", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"indexed_files\":3"));
+        .stdout(predicate::str::contains("\"indexed_files\":4"));
 
     command_with_env(&config_file, &cache_home)
         .args(["index", "status", "--json"])
@@ -96,7 +103,12 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .success()
         .stdout(predicate::str::contains(
             client_path.to_string_lossy().as_ref(),
-        ));
+        ))
+        .stdout(predicate::str::contains("\"score\":"))
+        .stdout(predicate::str::contains(
+            "\"shared_symbols\":[\"RetryPolicy\"]",
+        ))
+        .stdout(predicate::str::contains(notes_path.to_string_lossy().as_ref()).not());
 
     let get_output = command_with_env(&config_file, &cache_home)
         .args(["show"])
