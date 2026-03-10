@@ -76,6 +76,9 @@
   - `show` supports filesystem paths, `sifter://` virtual paths, and `#docid`
   - `show` supports `:line`, `-l/--max-lines`, and `--line-numbers`
   - `search` supports `--docs`, `--code`, `--files`, `--csv`, `--md`, and `--xml`
+- Expanded config collection management with:
+  - `sifter config collection rename`
+  - `sifter config collection remove`
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`

@@ -127,6 +127,29 @@ impl ConfigStore {
         Ok(config)
     }
 
+    pub fn remove_collection(&self, name: &str) -> Result<Config> {
+        let mut config = self.load()?;
+        if config.collections.remove(name).is_none() {
+            return Err(anyhow!("collection '{name}' does not exist"));
+        }
+        self.save(&config)?;
+        Ok(config)
+    }
+
+    pub fn rename_collection(&self, from: &str, to: &str) -> Result<Config> {
+        let mut config = self.load()?;
+        if config.collections.contains_key(to) {
+            return Err(anyhow!("collection '{to}' already exists"));
+        }
+        let collection = config
+            .collections
+            .remove(from)
+            .ok_or_else(|| anyhow!("collection '{from}' does not exist"))?;
+        config.collections.insert(to.to_string(), collection);
+        self.save(&config)?;
+        Ok(config)
+    }
+
     pub fn add_context(&self, scope: &str, value: &str) -> Result<Config> {
         let mut config = self.load()?;
         config.contexts.insert(scope.to_string(), value.to_string());

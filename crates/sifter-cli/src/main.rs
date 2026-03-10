@@ -46,6 +46,8 @@ struct CollectionCommand {
 enum CollectionSubcommand {
     Add(CollectionAdd),
     List(OutputArgs),
+    Remove(CollectionRemove),
+    Rename(CollectionRename),
 }
 
 #[derive(Debug, Args)]
@@ -55,6 +57,17 @@ struct CollectionAdd {
     name: String,
     #[arg(long = "mask")]
     pattern: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct CollectionRemove {
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct CollectionRename {
+    from: String,
+    to: String,
 }
 
 #[derive(Debug, Args)]
@@ -229,6 +242,21 @@ fn execute_config(command: ConfigCommand, config_store: &ConfigStore) -> Result<
                     })
                     .collect::<Vec<_>>();
                 print_serialized(output.format(), &collections, "collections")?;
+            }
+            CollectionSubcommand::Remove(args) => {
+                config_store.remove_collection(&args.name)?;
+                print_json(&json!({
+                    "removed": args.name,
+                }));
+            }
+            CollectionSubcommand::Rename(args) => {
+                config_store.rename_collection(&args.from, &args.to)?;
+                print_json(&json!({
+                    "renamed": {
+                        "from": args.from,
+                        "to": args.to,
+                    }
+                }));
             }
         },
         ConfigSubcommand::Context(command) => match command.command {
