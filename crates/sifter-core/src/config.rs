@@ -150,6 +150,41 @@ impl ConfigStore {
         Ok(config)
     }
 
+    pub fn collection(&self, name: &str) -> Result<Collection> {
+        let config = self.load()?;
+        config
+            .collections
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow!("collection '{name}' does not exist"))
+    }
+
+    pub fn set_collection_included(&self, name: &str, included: bool) -> Result<Config> {
+        let mut config = self.load()?;
+        let collection = config
+            .collections
+            .get_mut(name)
+            .ok_or_else(|| anyhow!("collection '{name}' does not exist"))?;
+        collection.include_by_default = included;
+        self.save(&config)?;
+        Ok(config)
+    }
+
+    pub fn set_collection_update_command(
+        &self,
+        name: &str,
+        update_command: Option<String>,
+    ) -> Result<Config> {
+        let mut config = self.load()?;
+        let collection = config
+            .collections
+            .get_mut(name)
+            .ok_or_else(|| anyhow!("collection '{name}' does not exist"))?;
+        collection.update = update_command;
+        self.save(&config)?;
+        Ok(config)
+    }
+
     pub fn add_context(&self, scope: &str, value: &str) -> Result<Config> {
         let mut config = self.load()?;
         config.contexts.insert(scope.to_string(), value.to_string());

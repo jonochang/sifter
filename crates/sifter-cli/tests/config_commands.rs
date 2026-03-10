@@ -93,6 +93,59 @@ fn collection_can_be_renamed_and_removed() {
 }
 
 #[test]
+fn collection_show_include_exclude_and_update_cmd_work() {
+    let temp = tempdir().expect("create tempdir");
+    let config_file = temp.path().join("config.yml");
+    let collection_root = temp.path().join("repo");
+    fs::create_dir_all(&collection_root).expect("create collection root");
+
+    command_with_config(&config_file)
+        .args(["config", "collection", "add"])
+        .arg(&collection_root)
+        .args(["--name", "repo"])
+        .assert()
+        .success();
+
+    command_with_config(&config_file)
+        .args(["config", "collection", "show", "repo", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"includeByDefault\":true"));
+
+    command_with_config(&config_file)
+        .args(["config", "collection", "exclude", "repo"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"includeByDefault\":false"));
+
+    command_with_config(&config_file)
+        .args(["config", "collection", "include", "repo"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"includeByDefault\":true"));
+
+    command_with_config(&config_file)
+        .args([
+            "config",
+            "collection",
+            "update-cmd",
+            "repo",
+            "git pull --ff-only",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("git pull --ff-only"));
+
+    command_with_config(&config_file)
+        .args(["config", "collection", "show", "repo", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"update\":\"git pull --ff-only\"",
+        ));
+}
+
+#[test]
 fn context_commands_add_list_check_and_remove_contexts() {
     let temp = tempdir().expect("create tempdir");
     let config_file = temp.path().join("config.yml");

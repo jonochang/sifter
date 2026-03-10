@@ -79,6 +79,9 @@
 - Expanded config collection management with:
   - `sifter config collection rename`
   - `sifter config collection remove`
+  - `sifter config collection show`
+  - `sifter config collection include|exclude`
+  - `sifter config collection update-cmd`
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`

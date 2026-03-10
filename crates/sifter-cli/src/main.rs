@@ -46,8 +46,12 @@ struct CollectionCommand {
 enum CollectionSubcommand {
     Add(CollectionAdd),
     List(OutputArgs),
+    Show(CollectionShow),
     Remove(CollectionRemove),
     Rename(CollectionRename),
+    Include(CollectionInclude),
+    Exclude(CollectionExclude),
+    UpdateCmd(CollectionUpdateCommand),
 }
 
 #[derive(Debug, Args)]
@@ -65,9 +69,32 @@ struct CollectionRemove {
 }
 
 #[derive(Debug, Args)]
+struct CollectionShow {
+    name: String,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Debug, Args)]
 struct CollectionRename {
     from: String,
     to: String,
+}
+
+#[derive(Debug, Args)]
+struct CollectionInclude {
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct CollectionExclude {
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct CollectionUpdateCommand {
+    name: String,
+    command: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -243,6 +270,21 @@ fn execute_config(command: ConfigCommand, config_store: &ConfigStore) -> Result<
                     .collect::<Vec<_>>();
                 print_serialized(output.format(), &collections, "collections")?;
             }
+            CollectionSubcommand::Show(args) => {
+                let collection = config_store.collection(&args.name)?;
+                print_value(
+                    args.output.format(),
+                    &json!({
+                        "name": args.name,
+                        "path": collection.path,
+                        "pattern": collection.pattern,
+                        "ignore": collection.ignore,
+                        "context": collection.context,
+                        "update": collection.update,
+                        "includeByDefault": collection.include_by_default,
+                    }),
+                )?;
+            }
             CollectionSubcommand::Remove(args) => {
                 config_store.remove_collection(&args.name)?;
                 print_json(&json!({
@@ -256,6 +298,27 @@ fn execute_config(command: ConfigCommand, config_store: &ConfigStore) -> Result<
                         "from": args.from,
                         "to": args.to,
                     }
+                }));
+            }
+            CollectionSubcommand::Include(args) => {
+                config_store.set_collection_included(&args.name, true)?;
+                print_json(&json!({
+                    "collection": args.name,
+                    "includeByDefault": true,
+                }));
+            }
+            CollectionSubcommand::Exclude(args) => {
+                config_store.set_collection_included(&args.name, false)?;
+                print_json(&json!({
+                    "collection": args.name,
+                    "includeByDefault": false,
+                }));
+            }
+            CollectionSubcommand::UpdateCmd(args) => {
+                config_store.set_collection_update_command(&args.name, args.command.clone())?;
+                print_json(&json!({
+                    "collection": args.name,
+                    "update": args.command,
                 }));
             }
         },
