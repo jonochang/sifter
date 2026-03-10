@@ -48,6 +48,11 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
          pub fn note() -> &'static str { \"RetryPolicy\" }\n",
     )
     .expect("write unrelated note");
+    let canonical_doc_path = fs::canonicalize(&doc_path).unwrap_or_else(|_| doc_path.clone());
+    let canonical_code_path = fs::canonicalize(&code_path).unwrap_or_else(|_| code_path.clone());
+    let canonical_client_path =
+        fs::canonicalize(&client_path).unwrap_or_else(|_| client_path.clone());
+    let canonical_notes_path = fs::canonicalize(&notes_path).unwrap_or_else(|_| notes_path.clone());
 
     command_with_env(&config_file, &cache_home)
         .args(["config", "collection", "add"])
@@ -82,6 +87,9 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .args(["index", "status", "--json"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("\"indexed_files\":4"))
+        .stdout(predicate::str::contains("\"indexed_docs\":1"))
+        .stdout(predicate::str::contains("\"indexed_code\":3"))
         .stdout(predicate::str::contains("\"vector_runtime\":\"pending\""));
 
     command_with_env(&config_file, &cache_home)
@@ -120,9 +128,9 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            code_path.to_string_lossy().as_ref(),
+            canonical_code_path.to_string_lossy().as_ref(),
         ))
-        .stdout(predicate::str::contains(client_path.to_string_lossy().as_ref()).not())
+        .stdout(predicate::str::contains(canonical_client_path.to_string_lossy().as_ref()).not())
         .stdout(predicate::str::contains("\"match_type\":\"definition\""));
 
     command_with_env(&config_file, &cache_home)
@@ -130,9 +138,9 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            client_path.to_string_lossy().as_ref(),
+            canonical_client_path.to_string_lossy().as_ref(),
         ))
-        .stdout(predicate::str::contains(code_path.to_string_lossy().as_ref()).not())
+        .stdout(predicate::str::contains(canonical_code_path.to_string_lossy().as_ref()).not())
         .stdout(predicate::str::contains("\"match_type\":\"reference\""));
 
     command_with_env(&config_file, &cache_home)
@@ -142,13 +150,13 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            client_path.to_string_lossy().as_ref(),
+            canonical_client_path.to_string_lossy().as_ref(),
         ))
         .stdout(predicate::str::contains("\"score\":"))
         .stdout(predicate::str::contains(
             "\"shared_symbols\":[\"RetryPolicy\"]",
         ))
-        .stdout(predicate::str::contains(notes_path.to_string_lossy().as_ref()).not());
+        .stdout(predicate::str::contains(canonical_notes_path.to_string_lossy().as_ref()).not());
 
     let get_output = command_with_env(&config_file, &cache_home)
         .args(["show"])
@@ -159,7 +167,10 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .stdout
         .clone();
     let get_json: Value = serde_json::from_slice(&get_output).expect("parse get output");
-    assert_eq!(get_json["file"], doc_path.to_string_lossy().as_ref());
+    assert_eq!(
+        get_json["file"],
+        canonical_doc_path.to_string_lossy().as_ref()
+    );
 
     let docid = get_json["docid"].as_str().expect("docid").to_string();
     let virtual_path = get_json["virtual_path"]
@@ -196,13 +207,13 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            code_path.to_string_lossy().as_ref(),
+            canonical_code_path.to_string_lossy().as_ref(),
         ))
         .stdout(predicate::str::contains(
-            client_path.to_string_lossy().as_ref(),
+            canonical_client_path.to_string_lossy().as_ref(),
         ))
         .stdout(predicate::str::contains(
-            notes_path.to_string_lossy().as_ref(),
+            canonical_notes_path.to_string_lossy().as_ref(),
         ));
 
     command_with_env(&config_file, &cache_home)
@@ -210,10 +221,10 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            doc_path.to_string_lossy().as_ref(),
+            canonical_doc_path.to_string_lossy().as_ref(),
         ))
         .stdout(predicate::str::contains(
-            code_path.to_string_lossy().as_ref(),
+            canonical_code_path.to_string_lossy().as_ref(),
         ));
 
     command_with_env(&config_file, &cache_home)

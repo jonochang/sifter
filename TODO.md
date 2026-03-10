@@ -102,6 +102,10 @@
   - wildcard refs now route through multi-item retrieval
   - `sifter://...` virtual-path globs are supported alongside filesystem globs
   - collection-relative addressing works for indexed virtual paths without absolute filesystem paths
+- Tightened first-run path handling:
+  - `config collection add .` canonicalizes the collection root before saving
+  - exact filesystem lookups canonicalize incoming refs before querying the index
+  - `index status` now has sequential coverage asserting real indexed file/doc/code counts after rebuild
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`

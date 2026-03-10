@@ -275,12 +275,19 @@ pub fn matching_contexts(config: &Config, candidate: &str) -> Vec<ContextMatch> 
 }
 
 fn absolutize(path: PathBuf) -> Result<PathBuf> {
-    if path.is_absolute() {
-        return Ok(path);
+    if path.exists() {
+        return fs::canonicalize(&path)
+            .with_context(|| format!("failed to canonicalize {}", path.display()));
     }
 
-    let cwd = env::current_dir().context("failed to read current directory")?;
-    Ok(cwd.join(path))
+    let absolute = if path.is_absolute() {
+        path
+    } else {
+        let cwd = env::current_dir().context("failed to read current directory")?;
+        cwd.join(path)
+    };
+
+    Ok(absolute)
 }
 
 #[cfg(test)]

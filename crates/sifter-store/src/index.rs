@@ -404,6 +404,7 @@ impl Store {
 
     pub fn get(&self, reference: &str, slice: Option<LineSlice>) -> Result<Option<IndexedFile>> {
         let parsed = ParsedReference::parse(reference, slice);
+        let key = normalize_lookup_reference(&parsed.reference)?;
         let mut statement = if parsed.reference.starts_with('#') {
             self.connection.prepare(
                 "SELECT docid, collection, path, virtual_path, kind, title, language, context, content, line_start, line_end
@@ -421,8 +422,7 @@ impl Store {
             )?
         };
 
-        let key = parsed.reference.trim_start_matches('#');
-        let mut rows = statement.query([key])?;
+        let mut rows = statement.query([key.as_str()])?;
         let Some(row) = rows.next()? else {
             return Ok(None);
         };
@@ -762,6 +762,25 @@ fn relation_weight(kind: &str) -> usize {
         "mention" => 1,
         _ => 1,
     }
+}
+
+fn normalize_lookup_reference(reference: &str) -> Result<String> {
+    if reference.starts_with('#') {
+        return Ok(reference.trim_start_matches('#').to_string());
+    }
+
+    if reference.starts_with("sifter://") {
+        return Ok(reference.to_string());
+    }
+
+    let path = Path::new(reference);
+    if path.exists() {
+        return fs::canonicalize(path)
+            .with_context(|| format!("failed to canonicalize {}", path.display()))
+            .map(|path| path.to_string_lossy().to_string());
+    }
+
+    Ok(reference.to_string())
 }
 
 fn compile_glob(pattern: &str) -> Result<globset::GlobSet> {

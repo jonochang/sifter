@@ -32,6 +32,30 @@ fn collection_add_persists_yaml_config() {
 }
 
 #[test]
+fn collection_add_normalizes_current_directory_paths() {
+    let temp = tempdir().expect("create tempdir");
+    let config_file = temp.path().join("config.yml");
+    let collection_root = temp.path().join("repo");
+    fs::create_dir_all(&collection_root).expect("create collection root");
+    let expected_path = fs::canonicalize(&collection_root).expect("canonicalize collection root");
+
+    let mut command = command_with_config(&config_file);
+    command.current_dir(&collection_root);
+    command
+        .args(["config", "collection", "add", ".", "--name", "repo"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "\"path\":\"{}\"",
+            expected_path.to_string_lossy()
+        )));
+
+    let saved = fs::read_to_string(config_file).expect("read config");
+    assert!(saved.contains(&format!("path: {}", expected_path.display())));
+    assert!(!saved.contains(&format!("path: {}/.", expected_path.display())));
+}
+
+#[test]
 fn collection_list_emits_known_collections_as_json() {
     let temp = tempdir().expect("create tempdir");
     let config_file = temp.path().join("config.yml");
