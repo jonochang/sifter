@@ -6,7 +6,7 @@ use clap::{ArgGroup, Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use sifter_core::config::{ConfigStore, cache_file_path, matching_contexts};
-use sifter_store::index::{IndexedFile, LineSlice, SearchKind, SearchOptions, Store};
+use sifter_store::index::{IndexedFile, LineSlice, SearchKind, SearchOptions, Store, SymbolMode};
 
 #[derive(Debug, Parser)]
 #[command(name = "sifter")]
@@ -160,6 +160,11 @@ enum IndexSubcommand {
         .args(["docs", "code"])
         .multiple(false)
 ))]
+#[command(group(
+    ArgGroup::new("symbol_mode")
+        .args(["defs", "refs"])
+        .multiple(false)
+))]
 struct SearchCommand {
     query: Option<String>,
     #[arg(long)]
@@ -168,6 +173,10 @@ struct SearchCommand {
     hybrid: bool,
     #[arg(long)]
     symbol: Option<String>,
+    #[arg(long)]
+    defs: bool,
+    #[arg(long)]
+    refs: bool,
     #[arg(long)]
     related: Option<String>,
     #[arg(long)]
@@ -402,7 +411,12 @@ fn execute_search(command: SearchCommand) -> Result<()> {
     let index = Store::open(&db_path)?;
 
     if let Some(symbol) = &command.symbol {
-        let results = index.symbol(symbol)?;
+        let mode = if command.refs {
+            SymbolMode::References
+        } else {
+            SymbolMode::Definitions
+        };
+        let results = index.symbol(symbol, mode)?;
         return print_serialized(command.output.format(), &results, "results");
     }
 

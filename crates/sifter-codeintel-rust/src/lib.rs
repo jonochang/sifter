@@ -102,6 +102,7 @@ fn collect_relations(node: tree_sitter::Node<'_>, source: &str, relations: &mut 
             });
         }
     } else if node.kind() == "type_identifier"
+        && !is_definition_name(node)
         && let Ok(name) = node.utf8_text(source.as_bytes())
         && !name.is_empty()
     {
@@ -117,6 +118,26 @@ fn collect_relations(node: tree_sitter::Node<'_>, source: &str, relations: &mut 
     for child in node.children(&mut cursor) {
         collect_relations(child, source, relations);
     }
+}
+
+fn is_definition_name(node: tree_sitter::Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if !matches!(
+        parent.kind(),
+        "struct_item" | "enum_item" | "trait_item" | "type_item" | "mod_item"
+    ) {
+        return false;
+    }
+
+    parent
+        .child_by_field_name("name")
+        .is_some_and(|name| same_node(name, node))
+}
+
+fn same_node(left: tree_sitter::Node<'_>, right: tree_sitter::Node<'_>) -> bool {
+    left.start_byte() == right.start_byte() && left.end_byte() == right.end_byte()
 }
 
 fn import_names(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {

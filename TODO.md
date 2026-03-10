@@ -93,6 +93,11 @@
   - `sifter config context global --clear` removes it
   - `context check` includes the global fallback when present
   - indexed results use the most specific scoped context and otherwise fall back to `global_context`
+- Extended `sifter search --symbol` with mode filters:
+  - default behavior remains definition-first
+  - `--defs` returns only symbol definitions
+  - `--refs` returns stored reference-like hits from indexed relations
+  - Rust extraction excludes definition-site names from reference results
 - Committed the work in stable milestones:
   - `bootstrap Rust workspace`
   - `add nix development environment`
@@ -105,7 +110,6 @@
 - Add the remaining CLI surface from the plan:
   - `ls`
 - Add richer search filters and formatters:
-- Extend `symbol` with `--defs` and `--refs`.
 - Add more languages by implementing additional `LanguagePlugin` crates and registering them in the store/indexer.
 - Add store and formatter unit tests directly in `sifter-store`.
 - Add acceptance fixtures proving `sifter` can index and search its own repo.

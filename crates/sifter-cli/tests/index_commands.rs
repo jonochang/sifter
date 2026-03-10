@@ -116,6 +116,26 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .stdout(predicate::str::contains("\"kind\":\"struct\""));
 
     command_with_env(&config_file, &cache_home)
+        .args(["search", "--symbol", "RetryPolicy", "--defs", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            code_path.to_string_lossy().as_ref(),
+        ))
+        .stdout(predicate::str::contains(client_path.to_string_lossy().as_ref()).not())
+        .stdout(predicate::str::contains("\"match_type\":\"definition\""));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "--symbol", "RetryPolicy", "--refs", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            client_path.to_string_lossy().as_ref(),
+        ))
+        .stdout(predicate::str::contains(code_path.to_string_lossy().as_ref()).not())
+        .stdout(predicate::str::contains("\"match_type\":\"reference\""));
+
+    command_with_env(&config_file, &cache_home)
         .args(["search", "--related"])
         .arg(&code_path)
         .args(["--json"])

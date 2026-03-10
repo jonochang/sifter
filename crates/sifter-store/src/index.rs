@@ -54,6 +54,7 @@ pub struct SearchHit {
 pub struct SymbolHit {
     pub name: String,
     pub kind: String,
+    pub match_type: String,
     pub file: String,
     pub collection: String,
     pub line_start: usize,
@@ -89,6 +90,12 @@ pub struct SearchOptions {
 pub enum SearchKind {
     Doc,
     Code,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolMode {
+    Definitions,
+    References,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -486,19 +493,32 @@ impl Store {
         Ok(results)
     }
 
-    pub fn symbol(&self, query: &str) -> Result<Vec<SymbolHit>> {
-        let mut statement = self.connection.prepare(
-            "SELECT symbols.name, symbols.kind, files.path, files.collection, symbols.line_start, symbols.line_end, files.language
-             FROM symbols
-             JOIN files ON files.docid = symbols.docid
-             WHERE symbols.name = ? OR symbols.name LIKE ?
-             ORDER BY symbols.name, files.path",
-        )?;
+    pub fn symbol(&self, query: &str, mode: SymbolMode) -> Result<Vec<SymbolHit>> {
         let like = format!("{query}%");
+        let (sql, match_type) = match mode {
+            SymbolMode::Definitions => (
+                "SELECT symbols.name, symbols.kind, files.path, files.collection, symbols.line_start, symbols.line_end, files.language
+                 FROM symbols
+                 JOIN files ON files.docid = symbols.docid
+                 WHERE symbols.name = ? OR symbols.name LIKE ?
+                 ORDER BY symbols.name, files.path, symbols.line_start",
+                "definition",
+            ),
+            SymbolMode::References => (
+                "SELECT DISTINCT relations.name, relations.kind, files.path, files.collection, relations.line_start, relations.line_end, files.language
+                 FROM relations
+                 JOIN files ON files.docid = relations.docid
+                 WHERE relations.name = ? OR relations.name LIKE ?
+                 ORDER BY relations.name, files.path, relations.line_start",
+                "reference",
+            ),
+        };
+        let mut statement = self.connection.prepare(sql)?;
         let rows = statement.query_map(params![query, like], |row| {
             Ok(SymbolHit {
                 name: row.get(0)?,
                 kind: row.get(1)?,
+                match_type: match_type.to_string(),
                 file: row.get(2)?,
                 collection: row.get(3)?,
                 line_start: row.get(4)?,
