@@ -7,20 +7,20 @@ The current MVP supports:
 - `sifter config collection add|list`
 - `sifter config context add|list|check|rm`
 - `sifter index update|status`
-- `sifter search <query>`
+- `sifter search <query>` with `--docs`, `--code`, `--files`, `--csv`, `--md`, `--xml`, and `--full`
 - `sifter search --symbol <name>`
 - `sifter search --related <path>`
 - `sifter search --semantic <query>` and `sifter search --hybrid <query>` as deferred-runtime placeholders
-- `sifter show <ref...>`
+- `sifter show <ref...>` with path, `sifter://...`, or `#docid` references, plus `:line`, `-l`, and `--line-numbers`
 
 Example:
 
 ```bash
 sifter config collection add . --name repo
 sifter index update --json
-sifter search "retry budget" --json
+sifter search "retry budget" --docs --json
 sifter search --symbol RetryPolicy --json
-sifter show README.md
+sifter show sifter://repo/README.md:20 -l 10 --line-numbers
 ```
 
 ## Development

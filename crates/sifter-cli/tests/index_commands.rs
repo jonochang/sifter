@@ -28,7 +28,7 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     let client_path = src.join("client.rs");
     fs::write(
         &doc_path,
-        "# Retry Budget\n\nSifter should index retry budget design notes.\n",
+        "# Retry Budget\n\nSifter should index retry budget design notes.\n\n## Rollout\n\nrollout checklist line 1\nrollout checklist line 2\n",
     )
     .expect("write doc");
     fs::write(
@@ -68,6 +68,20 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .stdout(predicate::str::contains("Retry Budget"));
 
     command_with_env(&config_file, &cache_home)
+        .args(["search", "rollout", "--docs", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"title\":\"Rollout\""))
+        .stdout(predicate::str::contains("\"kind\":\"doc\""));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "retry", "--code", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\":\"code\""))
+        .stdout(predicate::str::contains("lib.rs"));
+
+    command_with_env(&config_file, &cache_home)
         .args(["search", "--symbol", "RetryPolicy", "--json"])
         .assert()
         .success()
@@ -95,6 +109,27 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
     let get_json: Value = serde_json::from_slice(&get_output).expect("parse get output");
     assert_eq!(get_json["file"], doc_path.to_string_lossy().as_ref());
 
+    let docid = get_json["docid"].as_str().expect("docid").to_string();
+    let virtual_path = get_json["virtual_path"]
+        .as_str()
+        .expect("virtual path")
+        .to_string();
+
+    command_with_env(&config_file, &cache_home)
+        .args(["show", "--line-numbers", "-l", "2"])
+        .arg(format!("{virtual_path}:5"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("   5: ## Rollout"))
+        .stdout(predicate::str::contains("   6: "));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["show"])
+        .arg(format!("#{docid}"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Retry Budget"));
+
     command_with_env(&config_file, &cache_home)
         .args(["show"])
         .arg(&doc_path)
@@ -103,6 +138,35 @@ fn update_status_search_get_and_multi_get_work_for_docs_and_code() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"results\""));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "retry", "--files"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            doc_path.to_string_lossy().as_ref(),
+        ))
+        .stdout(predicate::str::contains(
+            code_path.to_string_lossy().as_ref(),
+        ));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "retry", "--csv"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("collection,context,docid,file"));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "retry", "--md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("```json"));
+
+    command_with_env(&config_file, &cache_home)
+        .args(["search", "retry", "--xml"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("<results>"));
 }
 
 #[test]
