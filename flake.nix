@@ -35,10 +35,10 @@
         packages.sifter = sifterPkg;
         packages.default = sifterPkg;
 
-        apps.default = {
-          type = "app";
-          program = "${sifterPkg}/bin/sifter";
+        apps.sifter = flake-utils.lib.mkApp {
+          drv = sifterPkg;
         };
+        apps.default = self.apps.${system}.sifter;
 
         devShells.default = pkgs.mkShell {
           packages = [

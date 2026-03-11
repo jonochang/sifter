@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-03-11
+
+- Document the current quick-start flow, indexing defaults, and JSON-oriented examples in the README.
+- Expose a named `sifter` flake app alongside the default app so `nix profile install github:jonochang/sifter` resolves cleanly.
+
 ## 0.2.0 - 2026-03-10
 
 - Improve first-run indexing reliability by canonicalizing collection paths and keeping `index status` aligned with the stored index state.
